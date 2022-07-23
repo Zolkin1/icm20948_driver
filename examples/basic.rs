@@ -38,7 +38,11 @@ dispatchers = [SPI1]
 mod app {
     use systick_monotonic::{fugit::Duration, Systick};
     use stm32h7xx_hal::gpio::{self, Output, PushPull};
+    use stm32h7xx_hal::pac::SPI1;
     use stm32h7xx_hal::prelude::*;
+    use stm32h7xx_hal::spi;
+    use icm20948_driver::icm20948;
+    use defmt::unwrap;
 
     pub const MONO_TICK_RATE: u32 = 100;
     pub const SYS_TICK_RATE: u32 = 100_000_000;
@@ -56,6 +60,7 @@ mod app {
     struct Local {
         led: gpio::PE1<Output<PushPull>>,
         state: bool,
+        imu: icm20948::IcmImu<spi::Spi<SPI1, spi::Enabled>, gpio::PD15<Output>>,
     }
 
     #[init]
@@ -68,13 +73,16 @@ mod app {
         let mono: Mono = Systick::new(core.SYST, SYS_TICK_RATE);
 
 
-        defmt::info!("Setting up power...");
+        defmt::info!("Setting up Power...");
         let pwr = device.PWR.constrain();
         let pwrcfg = pwr.freeze();
 
         defmt::info!("Setting up RCC...");
         let rcc = device.RCC.constrain();
-        let ccdr = rcc.sys_ck(SYS_TICK_RATE.Hz()).freeze(pwrcfg, &device.SYSCFG);
+        let ccdr = rcc
+            .sys_ck(SYS_TICK_RATE.Hz())
+            .pll1_q_ck(48.MHz())
+            .freeze(pwrcfg, &device.SYSCFG);
 
 
         let gpioe = device.GPIOE.split(ccdr.peripheral.GPIOE);
@@ -82,8 +90,29 @@ mod app {
         // Configure PE1 as output.
         let led = gpioe.pe1.into_push_pull_output();
 
-        heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
+        // Configure the SPI bus
+        let gpioa = device.GPIOA.split(ccdr.peripheral.GPIOA);
+        let gpiob = device.GPIOB.split(ccdr.peripheral.GPIOB);
+        let gpiod = device.GPIOD.split(ccdr.peripheral.GPIOD);
 
+        let sck = gpioa.pa5.into_alternate();
+        let miso = gpioa.pa6.into_alternate();
+        let mosi = gpiob.pb5.into_alternate();
+        let mut cs = gpiod.pd15.into_push_pull_output();
+        cs.set_high();
+
+        let spi1: spi::Spi<_, _, u8> = device.SPI1.spi(
+            (sck, miso, mosi),
+            spi::MODE_0,
+            3.MHz(),
+            ccdr.peripheral.SPI1,
+            &ccdr.clocks,
+        );
+
+        let imu_res = icm20948::IcmImu::new(spi1, cs);
+
+        heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
+        imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
         // Setup the monotonic timer
         (
             Shared {
@@ -92,6 +121,7 @@ mod app {
             Local {
                 led,
                 state: false,
+                imu: unwrap!(imu_res),
             },
             init::Monotonics(
                 mono
@@ -102,7 +132,7 @@ mod app {
     #[idle]
     fn idle(_: idle::Context) -> ! {
         loop {
-            rtic::export::wfi()
+            //rtic::export::wfi()
         }
     }
 
@@ -111,13 +141,21 @@ mod app {
         if *cx.local.state {
             cx.local.led.set_high();
             *cx.local.state = false;
-            defmt::info!("Heartbeat: LED set high");
+            defmt::debug!("Heartbeat: LED set high");
         } else {
             cx.local.led.set_low();
             *cx.local.state = true;
-            defmt::info!("Heartbeat: LED set low");
+            defmt::debug!("Heartbeat: LED set low");
         }
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
+    }
+
+    #[task(local = [imu])]
+    fn imufn(cx: imufn::Context) {
+        let res = cx.local.imu.wai();
+        defmt::debug!("WAI: {:#01x}", unwrap!(res));
+
+        imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
     }
 }

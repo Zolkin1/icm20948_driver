@@ -5,3 +5,4 @@ use defmt_rtt as _; // global logger
 use panic_probe as _;
 use stm32h7xx_hal as _;
 
+pub mod icm20948;
