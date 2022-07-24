@@ -154,7 +154,15 @@ mod app {
     #[task(local = [imu])]
     fn imufn(cx: imufn::Context) {
         let res = cx.local.imu.wai();
-        defmt::debug!("WAI: {:#01x}", unwrap!(res));
+        defmt::trace!("WAI: {:#01x}", unwrap!(res));
+
+        let acc = unwrap!(cx.local.imu.read_acc());
+
+        defmt::debug!("Accelerometer readings (g): X: {}, Y: {}, Z: {}", acc[0], acc[1], acc[2]);
+
+        let gyr = unwrap!(cx.local.imu.read_gyro());
+
+        defmt::debug!("Gyro readings (degrees per second): X: {}, Y: {}, Z: {}", gyr[0], gyr[1], gyr[2]);
 
         imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
     }
