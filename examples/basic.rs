@@ -109,7 +109,12 @@ mod app {
             &ccdr.clocks,
         );
 
-        let imu_res = icm20948::IcmImu::new(spi1, cs);
+        let mut imu = unwrap!(icm20948::IcmImu::new(spi1, cs));
+
+        unwrap!(imu.set_acc_sen(icm20948::AccSensitivity::Sen8g));
+        unwrap!(imu.set_gyro_sen(icm20948::GyroSensitivity::Sen1000dps));
+        unwrap!(imu.config_acc_lpf(icm20948::AccLPF::BW111));
+        unwrap!(imu.config_gyro_lpf(icm20948::GyroLPF::BW119));
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
         imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
@@ -121,7 +126,7 @@ mod app {
             Local {
                 led,
                 state: false,
-                imu: unwrap!(imu_res),
+                imu,
             },
             init::Monotonics(
                 mono
@@ -141,11 +146,11 @@ mod app {
         if *cx.local.state {
             cx.local.led.set_high();
             *cx.local.state = false;
-            defmt::debug!("Heartbeat: LED set high");
+            defmt::trace!("Heartbeat: LED set high");
         } else {
             cx.local.led.set_low();
             *cx.local.state = true;
-            defmt::debug!("Heartbeat: LED set low");
+            defmt::trace!("Heartbeat: LED set low");
         }
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
@@ -162,7 +167,7 @@ mod app {
 
         let gyr = unwrap!(cx.local.imu.read_gyro());
 
-        defmt::debug!("Gyro readings (degrees per second): X: {}, Y: {}, Z: {}", gyr[0], gyr[1], gyr[2]);
+        defmt::debug!("Gyro readings (dps): X: {}, Y: {}, Z: {}", gyr[0], gyr[1], gyr[2]);          // dps is degrees per second
 
         imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
     }
