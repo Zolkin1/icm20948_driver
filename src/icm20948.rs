@@ -33,9 +33,9 @@ const GYRO_SEN_2: f32 = 32.8;
 const GYRO_SEN_3: f32 = 16.4;
 
 const REG_BANK_0: u8 = 0x00;
-const REG_BANK_1: u8 = 0x10;
+//const REG_BANK_1: u8 = 0x10;
 const REG_BANK_2: u8 = 0x20;
-const REG_BANK_3: u8 = 0x30;
+//const REG_BANK_3: u8 = 0x30;
 
 #[derive(PartialEq)]
 #[derive(Format)]
@@ -117,10 +117,22 @@ enum RegistersBank0 {
     GyroZOutL,
     RegBankSel,
 }
+/*
+enum RegistersBank1 {
+    XAOffsH,
+    XAOffsL,
+    YAOffsH,
+    YAOffsL,
+    ZAOffsH,
+    ZAOffsL,
+}*/
 
 enum RegistersBank2 {
     GyroConfig1,
     AccelConfig,
+    AccelSmplrtDiv1,
+    AccelSmplrtDiv2,
+    GyroSmplrtDiv,
 }
 
 pub struct IcmImu<BUS, PIN> {
@@ -129,7 +141,7 @@ pub struct IcmImu<BUS, PIN> {
     gyro_en: GyroStates,
     mag_en: MagStates,
 
-    databuf: [u8; 10],
+    databuf: [u8; 5],
 
     accel_sen: u16,
     gyro_sen: f32,
@@ -163,7 +175,7 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
             accel_sen: ACCEL_SEN_0,
             gyro_sen: GYRO_SEN_0,
             int_enabled: INT_NOT_ENABLED,
-            databuf: [0; 10],
+            databuf: [0; 5],
         })
     }
 
@@ -570,6 +582,51 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
 
     }
 
+    pub fn config_acc_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
+        if rate < 1_125 {
+            let div = 1_125/(rate) - 1;
+
+            self.change_bank(REG_BANK_2)?;
+
+            self.databuf[0] = RegistersBank2::AccelSmplrtDiv1.get_addr(WRITE_REG);
+            self.databuf[1] = div.to_be_bytes()[0];
+            self.databuf[2] = RegistersBank2::AccelSmplrtDiv2.get_addr(WRITE_REG);
+            self.databuf[3] = div.to_be_bytes()[1];
+
+            self.cs.set_low().ok();
+            self.bus.transfer(&mut self.databuf[0..4])?;
+            self.cs.set_high().ok();
+
+            self.change_bank(REG_BANK_0)?;
+
+            Ok(())
+        } else {
+            Err(IcmError::InvalidInput)
+        }
+    }
+
+    pub fn config_gyro_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
+        if rate > 4 {
+            let div: u8 = (1_100/(rate) - 1) as u8;
+
+            self.change_bank(REG_BANK_2)?;
+
+            self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
+            self.databuf[1] = div;
+
+
+            self.cs.set_low().ok();
+            self.bus.transfer(&mut self.databuf[0..2])?;
+            self.cs.set_high().ok();
+
+            self.change_bank(REG_BANK_0)?;
+
+            Ok(())
+        } else {
+            Err(IcmError::InvalidInput)
+        }
+    }
+
     fn change_bank(&mut self, bank: u8) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::RegBankSel.get_addr(WRITE_REG);
         self.databuf[1] = bank;
@@ -661,14 +718,45 @@ impl RegistersBank2 {
     fn get_addr(&self, is_read: bool) -> u8 {
         if is_read {
             match *self {
+                RegistersBank2::GyroSmplrtDiv => 1 << 7 | 0x00,
                 RegistersBank2::GyroConfig1 => 1 << 7 | 0x01,
+                RegistersBank2::AccelSmplrtDiv1 => 1 << 7 | 0x10,
+                RegistersBank2::AccelSmplrtDiv2 => 1 << 7 | 0x11,
                 RegistersBank2::AccelConfig => 1 << 7 | 0x14,
             }
         } else {
             match *self {
+                RegistersBank2::GyroSmplrtDiv => 0x00,
                 RegistersBank2::GyroConfig1 => 0x01,
+                RegistersBank2::AccelSmplrtDiv1 => 0x10,
+                RegistersBank2::AccelSmplrtDiv2 => 0x11,
                 RegistersBank2::AccelConfig => 0x14
             }
         }
     }
 }
+
+/*
+impl RegistersBank1 {
+    fn get_addr(&self, is_read: bool) -> u8 {
+        if is_read {
+            match *self {
+                RegistersBank1::XAOffsH => 1 << 7 | 0x14,
+                RegistersBank1::XAOffsL => 1 << 7 | 0x15,
+                RegistersBank1::YAOffsH => 1 << 7 | 0x17,
+                RegistersBank1::YAOffsL => 1 << 7 | 0x18,
+                RegistersBank1::ZAOffsH => 1 << 7 | 0x1A,
+                RegistersBank1::ZAOffsL => 1 << 7 | 0x1B,
+            }
+        } else {
+            match *self {
+                RegistersBank1::XAOffsH => 0x14,
+                RegistersBank1::XAOffsL => 0x15,
+                RegistersBank1::YAOffsH => 0x17,
+                RegistersBank1::YAOffsL => 0x18,
+                RegistersBank1::ZAOffsH => 0x1A,
+                RegistersBank1::ZAOffsL => 0x1B,
+            }
+        }
+    }
+}*/

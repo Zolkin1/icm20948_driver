@@ -113,8 +113,11 @@ mod app {
 
         unwrap!(imu.set_acc_sen(icm20948::AccSensitivity::Sen8g));
         unwrap!(imu.set_gyro_sen(icm20948::GyroSensitivity::Sen1000dps));
+
         unwrap!(imu.config_acc_lpf(icm20948::AccLPF::BW111));
         unwrap!(imu.config_gyro_lpf(icm20948::GyroLPF::BW119));
+        unwrap!(imu.config_acc_rate(100));
+        unwrap!(imu.config_gyro_rate(500));
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
         imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(MONO_TICK_RATE.into())).unwrap();
