@@ -1,3 +1,4 @@
+#![deny(warnings)]
 #![no_main]
 #![no_std]
 
@@ -7,8 +8,6 @@ use defmt_rtt as _; // global logger
 
 use panic_probe as _;
 
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
 #[defmt::panic_handler]
 fn panic() -> ! {
     cortex_m::asm::udf()
@@ -22,7 +21,6 @@ defmt::timestamp!("{=usize}", {
     n
 });
 
-/// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
     loop {
         cortex_m::asm::bkpt();
@@ -39,10 +37,9 @@ mod app {
     use defmt::unwrap;
     use icm20948_driver::icm20948;
     use stm32h7xx_hal::gpio::{self, Output, PushPull};
-    use stm32h7xx_hal::pac::{I2C1, SPI1};
+    use stm32h7xx_hal::pac::SPI1;
     use stm32h7xx_hal::prelude::*;
     use stm32h7xx_hal::spi;
-    use stm32h7xx_hal::i2c;
     use systick_monotonic::{fugit::Duration, Systick};
 
     pub const MONO_TICK_RATE: u32 = 100;
@@ -60,11 +57,7 @@ mod app {
     struct Local {
         led: gpio::PE1<Output<PushPull>>,
         state: bool,
-        //#[cfg(not(feature = "i2c"))]
-        //imu: icm20948::IcmImu<spi::Spi<SPI1, spi::Enabled>, gpio::PD15<Output>>,
-
-        #[cfg(feature = "i2c")]
-        imu: icm20948::IcmImu<i2c::I2c<I2C1>>,
+        imu: icm20948::spi::IcmImu<spi::Spi<SPI1, spi::Enabled>, gpio::PD15<Output>>,
     }
 
     #[init]
@@ -87,52 +80,33 @@ mod app {
             .pll1_q_ck(48.MHz())
             .freeze(pwrcfg, &device.SYSCFG);
 
+        // Setup heartbeat LED
         let gpioe = device.GPIOE.split(ccdr.peripheral.GPIOE);
-
-        // Configure PE1 as output.
         let led = gpioe.pe1.into_push_pull_output();
 
-        #[cfg(not(feature = "i2c"))]
-        {
-            // Configure the SPI bus
-
-            let gpioa = device.GPIOA.split(ccdr.peripheral.GPIOA);
-            let gpiob = device.GPIOB.split(ccdr.peripheral.GPIOB);
-            let gpiod = device.GPIOD.split(ccdr.peripheral.GPIOD);
-
-            let sck = gpioa.pa5.into_alternate();
-            let miso = gpioa.pa6.into_alternate();
-            let mosi = gpiob.pb5.into_alternate();
-            let mut cs = gpiod.pd15.into_push_pull_output();
-            cs.set_high();
-
-            let spi1: spi::Spi<_, _, u8> = device.SPI1.spi(
-                (sck, miso, mosi),
-                spi::MODE_0,
-                3.MHz(),
-                ccdr.peripheral.SPI1,
-                &ccdr.clocks,
-            );
-        }
-        //#[cfg(not(feature = "i2c"))]
-        //let mut imu = unwrap!(icm20948::IcmImu::new(spi1, cs));
-
-
+        // Configure the SPI bus
+        let gpioa = device.GPIOA.split(ccdr.peripheral.GPIOA);
         let gpiob = device.GPIOB.split(ccdr.peripheral.GPIOB);
-        let sda = gpiob.pb9.into_alternate_open_drain();
-        let scl = gpiob.pb8.into_alternate_open_drain();
+        let gpiod = device.GPIOD.split(ccdr.peripheral.GPIOD);
 
-        let i2c = device.I2C1.i2c((scl, sda), 300.kHz(), ccdr.peripheral.I2C1, &ccdr.clocks);
-        // Configure i2c
+        let sck = gpioa.pa5.into_alternate();
+        let miso = gpioa.pa6.into_alternate();
+        let mosi = gpiob.pb5.into_alternate();
+        let mut cs = gpiod.pd15.into_push_pull_output();
+        cs.set_high();
 
-        let mut imu = unwrap!(icm20948::IcmImu::new(i2c, 0x68));
+        let spi1: spi::Spi<_, _, u8> = device.SPI1.spi(
+            (sck, miso, mosi),
+            spi::MODE_0,
+            3.MHz(),
+            ccdr.peripheral.SPI1,
+            &ccdr.clocks,
+        );
+
+        let mut imu = unwrap!(icm20948::spi::IcmImu::new(spi1, cs));
+
         unwrap!(imu.set_gyro_sen(icm20948::GyroSensitivity::Sen1000dps));
         unwrap!(imu.set_acc_sen(icm20948::AccSensitivity::Sen8g));
-
-        unwrap!(imu.config_acc_lpf(icm20948::AccLPF::BW111));
-        unwrap!(imu.config_gyro_lpf(icm20948::GyroLPF::BW119));
-        unwrap!(imu.config_acc_rate(100));
-        unwrap!(imu.config_gyro_rate(500));
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
@@ -142,11 +116,8 @@ mod app {
             MONO_TICK_RATE.into(),
         ))
         .unwrap();
-        // Setup the monotonic timer
         (
-            Shared {
-                // Initialization of shared resources go here
-            },
+            Shared {},
             Local {
                 led,
                 state: false,
@@ -158,9 +129,7 @@ mod app {
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            //rtic::export::wfi()
-        }
+        loop {}
     }
 
     #[task(local = [led, state])]

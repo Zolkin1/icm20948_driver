@@ -7,7 +7,5 @@ with JLinkExe over SWD (not JTAG) and manually erasing the flash memory. Then pr
 idle loop not wfi (wake from interrupt). This appears to have solved the issue, although I am not entirely convinced this was the cause.
 
 TODO:
-- Potentially break the i2c vs SPI into two different mods
-- Make one example for each of them
 - Maybe remove the unit tests
 - Add more documentation
