@@ -3,12 +3,14 @@
 /// Due to limitations in embedded-hal and thus how much shared-bus can do, SPI is not suppoerted in
 /// shared-bus in a multi-threaded context.
 /// Thus you cannot use this driver with SPI in a multithreaded context.
-
 // TODO: Break the functions out into an IMU (or similar) trait
 // TODO: Consider typestating again
-
-use defmt::{Format, Formatter};
+use defmt::{error, Format, Formatter};
+#[cfg(not(feature = "i2c"))]
 use stm32h7xx_hal::hal::{self, blocking::spi};
+
+#[cfg(feature = "i2c")]
+use stm32h7xx_hal::hal::{self, blocking::i2c};
 
 use crate::icm20948::AccStates::*;
 use crate::icm20948::GyroStates::*;
@@ -37,22 +39,19 @@ const REG_BANK_0: u8 = 0x00;
 const REG_BANK_2: u8 = 0x20;
 //const REG_BANK_3: u8 = 0x30;
 
-#[derive(PartialEq)]
-#[derive(Format)]
+#[derive(PartialEq, Format)]
 pub enum AccStates {
     AccOn,
     AccOff,
 }
 
-#[derive(PartialEq)]
-#[derive(Format)]
+#[derive(PartialEq, Format)]
 pub enum GyroStates {
     GyroOn,
     GyroOff,
 }
 
-#[derive(PartialEq)]
-#[derive(Format)]
+#[derive(PartialEq, Format)]
 pub enum MagStates {
     MagOn,
     MagOff,
@@ -134,7 +133,24 @@ enum RegistersBank2 {
     AccelSmplrtDiv2,
     GyroSmplrtDiv,
 }
+#[cfg(feature = "i2c")]
+pub struct IcmImu<BUS> {
+    bus: BUS,
+    acc_en: AccStates,
+    gyro_en: GyroStates,
+    mag_en: MagStates,
 
+    databuf: [u8; 5],
+
+    accel_sen: u16,
+    gyro_sen: f32,
+
+    int_enabled: bool,
+
+    addr: u8,
+}
+
+#[cfg(not(feature = "i2c"))]
 pub struct IcmImu<BUS, PIN> {
     bus: BUS,
     acc_en: AccStates,
@@ -148,15 +164,15 @@ pub struct IcmImu<BUS, PIN> {
 
     int_enabled: bool,
 
-    #[cfg(not(feature = "i2c"))]
     cs: PIN,
 }
 
 #[cfg(not(feature = "i2c"))]
 impl<BUS, E, PIN> IcmImu<BUS, PIN>
-    where BUS: spi::Transfer<u8, Error = E>,
-    PIN: hal::digital::v2::OutputPin {
-
+where
+    BUS: spi::Transfer<u8, Error = E>,
+    PIN: hal::digital::v2::OutputPin,
+{
     pub fn new(mut bus: BUS, mut cs: PIN) -> Result<Self, IcmError<E>> {
         let mut buf = [RegistersBank0::PwrMgmt1.get_addr(WRITE_REG), 0x01];
 
@@ -309,14 +325,16 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         self.bus.transfer(&mut self.databuf[0..3])?;
         self.cs.set_high().ok();
 
-        Ok((((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32 / self.accel_sen as f32)
+        Ok(
+            (((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32
+                / self.accel_sen as f32,
+        )
     }
 
     pub fn read_acc_y(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en != AccOn {
             self.enable_acc()?;
         }
-
 
         self.databuf[0] = RegistersBank0::AccelYOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::AccelYOutL.get_addr(READ_REG);
@@ -325,14 +343,16 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         self.bus.transfer(&mut self.databuf[0..3])?;
         self.cs.set_high().ok();
 
-        Ok((((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32 / self.accel_sen as f32)
+        Ok(
+            (((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32
+                / self.accel_sen as f32,
+        )
     }
 
     pub fn read_acc_z(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en != AccOn {
             self.enable_acc()?;
         }
-
 
         self.databuf[0] = RegistersBank0::AccelZOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::AccelZOutL.get_addr(READ_REG);
@@ -341,7 +361,10 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         self.bus.transfer(&mut self.databuf[0..3])?;
         self.cs.set_high().ok();
 
-        Ok((((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32 / self.accel_sen as f32)
+        Ok(
+            (((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32
+                / self.accel_sen as f32,
+        )
     }
 
     pub fn read_acc(&mut self) -> Result<[f32; 3], IcmError<E>> {
@@ -357,7 +380,6 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         if self.gyro_en != GyroOn {
             self.enable_acc()?;
         }
-
 
         self.databuf[0] = RegistersBank0::GyroXOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::GyroXOutL.get_addr(READ_REG);
@@ -483,13 +505,13 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         let mask: u8 = 0x38;
 
         match bw {
-            AccLPF::BW6 => self.databuf[1] = (self.databuf[1] & !mask) | ((6 << 3) &  mask),
-            AccLPF::BW11 => self.databuf[1] = (self.databuf[1] & !mask) | ((5 << 3) &  mask),
-            AccLPF::BW24 => self.databuf[1] = (self.databuf[1] & !mask) | ((4 << 3) &  mask),
-            AccLPF::BW50 => self.databuf[1] = (self.databuf[1] & !mask) | ((3 << 3) &  mask),
-            AccLPF::BW111 => self.databuf[1] = (self.databuf[1] & !mask) | ((2 << 3) &  mask),
-            AccLPF::BW246 => self.databuf[1] = (self.databuf[1] & !mask) | ((0 << 3) &  mask),
-            AccLPF::Bw473 => self.databuf[1] = (self.databuf[1] & !mask) | ((7 << 3) &  mask),
+            AccLPF::BW6 => self.databuf[1] = (self.databuf[1] & !mask) | ((6 << 3) & mask),
+            AccLPF::BW11 => self.databuf[1] = (self.databuf[1] & !mask) | ((5 << 3) & mask),
+            AccLPF::BW24 => self.databuf[1] = (self.databuf[1] & !mask) | ((4 << 3) & mask),
+            AccLPF::BW50 => self.databuf[1] = (self.databuf[1] & !mask) | ((3 << 3) & mask),
+            AccLPF::BW111 => self.databuf[1] = (self.databuf[1] & !mask) | ((2 << 3) & mask),
+            AccLPF::BW246 => self.databuf[1] = (self.databuf[1] & !mask) | ((0 << 3) & mask),
+            AccLPF::Bw473 => self.databuf[1] = (self.databuf[1] & !mask) | ((7 << 3) & mask),
         }
 
         self.databuf[1] = self.databuf[1] | 0x01;
@@ -516,14 +538,14 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         let mask: u8 = 0x38;
 
         match bw {
-            GyroLPF::BW6 => self.databuf[1] = (self.databuf[1] & !mask) | ((6 << 3) &  mask),
-            GyroLPF::BW12 => self.databuf[1] = (self.databuf[1] & !mask) | ((5 << 3) &  mask),
-            GyroLPF::BW24 => self.databuf[1] = (self.databuf[1] & !mask) | ((4 << 3) &  mask),
-            GyroLPF::BW51 => self.databuf[1] = (self.databuf[1] & !mask) | ((3 << 3) &  mask),
-            GyroLPF::BW119 => self.databuf[1] = (self.databuf[1] & !mask) | ((2 << 3) &  mask),
-            GyroLPF::BW152 => self.databuf[1] = (self.databuf[1] & !mask) | ((1 << 3) &  mask),
-            GyroLPF::BW197 => self.databuf[1] = (self.databuf[1] & !mask) | ((0 << 3) &  mask),
-            GyroLPF::BW361 => self.databuf[1] = (self.databuf[1] & !mask) | ((7 << 3) &  mask),
+            GyroLPF::BW6 => self.databuf[1] = (self.databuf[1] & !mask) | ((6 << 3) & mask),
+            GyroLPF::BW12 => self.databuf[1] = (self.databuf[1] & !mask) | ((5 << 3) & mask),
+            GyroLPF::BW24 => self.databuf[1] = (self.databuf[1] & !mask) | ((4 << 3) & mask),
+            GyroLPF::BW51 => self.databuf[1] = (self.databuf[1] & !mask) | ((3 << 3) & mask),
+            GyroLPF::BW119 => self.databuf[1] = (self.databuf[1] & !mask) | ((2 << 3) & mask),
+            GyroLPF::BW152 => self.databuf[1] = (self.databuf[1] & !mask) | ((1 << 3) & mask),
+            GyroLPF::BW197 => self.databuf[1] = (self.databuf[1] & !mask) | ((0 << 3) & mask),
+            GyroLPF::BW361 => self.databuf[1] = (self.databuf[1] & !mask) | ((7 << 3) & mask),
         }
 
         self.databuf[1] = self.databuf[1] | 0x01;
@@ -538,7 +560,6 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         Ok(())
     }
 
-    // TODO: Test
     pub fn disable_acc_lpf(&mut self) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -557,10 +578,8 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         self.change_bank(REG_BANK_0)?;
 
         Ok(())
-
     }
 
-    // TODO: Test
     pub fn disable_gyro_lpf(&mut self) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -579,12 +598,11 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
         self.change_bank(REG_BANK_0)?;
 
         Ok(())
-
     }
 
     pub fn config_acc_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
         if rate < 1_125 {
-            let div = 1_125/(rate) - 1;
+            let div = 1_125 / (rate) - 1;
 
             self.change_bank(REG_BANK_2)?;
 
@@ -607,13 +625,12 @@ impl<BUS, E, PIN> IcmImu<BUS, PIN>
 
     pub fn config_gyro_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
         if rate > 4 {
-            let div: u8 = (1_100/(rate) - 1) as u8;
+            let div: u8 = (1_100 / (rate) - 1) as u8;
 
             self.change_bank(REG_BANK_2)?;
 
             self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
             self.databuf[1] = div;
-
 
             self.cs.set_low().ok();
             self.bus.transfer(&mut self.databuf[0..2])?;
@@ -646,24 +663,141 @@ impl<E> From<E> for IcmError<E> {
 }
 
 // TODO: Update this
+#[cfg(not(feature = "i2c"))]
 impl<BUS, PIN> Format for IcmImu<BUS, PIN> {
     fn format(&self, fmt: Formatter) {
         defmt::write!(fmt, "IMU{}", self.databuf[0])
     }
 }
 
-// TODO: Update
+#[cfg(feature = "i2c")]
+impl<BUS> Format for IcmImu<BUS> {
+    fn format(&self, fmt: Formatter) {
+        defmt::write!(fmt, "ICM-20948 IMU")
+    }
+}
+
+// TODO: Update with specific error
 impl<E> Format for IcmError<E> {
     fn format(&self, fmt: Formatter) {
-        defmt::write!(fmt, "IMU Error!")
+        match *self {
+            IcmError::BusError(_) => defmt::write!(fmt, "Bus Error!"),
+            IcmError::InvalidInput => defmt::write!(fmt, "Invalid input in the function!"),
+        }
     }
 }
 
 #[cfg(feature = "i2c")]
-impl<'a, BUS, const P: char, const N: u8> IcmImu<'a, BUS, P, N>
-    where BUS: WriteRead<u8> {
-    pub fn wai() -> u8 {
-        4
+impl<BUS, E> IcmImu<BUS>
+where
+    BUS: i2c::WriteRead<u8, Error = E> + i2c::Write<u8, Error = E>,
+{
+    // TODO: Debug with logic analyzer
+    pub fn new(mut bus: BUS, addr: u8) -> Result<Self, IcmError<E>> {
+        let mut buf = [0; 3];
+        buf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
+        buf[1] = 0x01;
+        bus.write(addr, &buf[0..2])?;
+
+        defmt::debug!("Setting up I2C IMU...");
+
+        Ok(IcmImu {
+            bus,
+            acc_en: AccOn,
+            gyro_en: GyroOn,
+            mag_en: MagOff,
+            accel_sen: ACCEL_SEN_0,
+            gyro_sen: GYRO_SEN_0,
+            int_enabled: INT_NOT_ENABLED,
+            databuf: [0; 5],
+            addr,
+        })
+    }
+
+    pub fn wai(&mut self) -> Result<u8, IcmError<E>> {
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::Wai.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+        Ok(buf[0])
+    }
+
+    pub fn enable_acc(&mut self) -> Result<(), IcmError<E>> {
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+        self.databuf[1] = buf[0] & 0x07;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.acc_en = AccOn;
+        Ok(())
+    }
+
+    pub fn disable_acc(&mut self) -> Result<(), IcmError<E>> {
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+        self.databuf[1] = buf[0] | 0x38;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.acc_en = AccOff;
+        Ok(())
+    }
+
+    pub fn read_acc_x(&mut self) -> Result<f32, IcmError<E>> {
+        if self.acc_en == AccOff {
+            self.enable_acc()?;
+        }
+
+        let mut buf = [0, 0];
+        self.databuf[0] = RegistersBank0::AccelXOutH.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[0] = RegistersBank0::AccelXOutL.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[1..2])?;
+
+        Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32
+               / self.accel_sen as f32)
+    }
+
+    pub fn read_acc_y(&mut self) -> Result<f32, IcmError<E>> {
+        if self.acc_en == AccOff {
+            self.enable_acc()?;
+        }
+
+        let mut buf = [0, 0];
+        self.databuf[0] = RegistersBank0::AccelYOutH.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[0] = RegistersBank0::AccelYOutL.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[1..2])?;
+
+        Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32
+            / self.accel_sen as f32)
+    }
+
+    pub fn read_acc_z(&mut self) -> Result<f32, IcmError<E>> {
+        if self.acc_en == AccOff {
+            self.enable_acc()?;
+        }
+
+        let mut buf = [0, 0];
+        self.databuf[0] = RegistersBank0::AccelZOutH.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[0] = RegistersBank0::AccelZOutL.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[1..2])?;
+
+        Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32
+            / self.accel_sen as f32)
+    }
+
+    pub fn read_acc(&mut self) -> Result<[f32; 3], IcmError<E>> {
+        let mut buf = [0.0, 0.0, 0.0];
+        buf[0] = self.read_acc_x()?;
+        buf[1] = self.read_acc_y()?;
+        buf[2] = self.read_acc_z()?;
+
+        Ok(buf)
     }
 }
 
@@ -713,7 +847,6 @@ impl RegistersBank0 {
     }
 }
 
-
 impl RegistersBank2 {
     fn get_addr(&self, is_read: bool) -> u8 {
         if is_read {
@@ -730,7 +863,7 @@ impl RegistersBank2 {
                 RegistersBank2::GyroConfig1 => 0x01,
                 RegistersBank2::AccelSmplrtDiv1 => 0x10,
                 RegistersBank2::AccelSmplrtDiv2 => 0x11,
-                RegistersBank2::AccelConfig => 0x14
+                RegistersBank2::AccelConfig => 0x14,
             }
         }
     }

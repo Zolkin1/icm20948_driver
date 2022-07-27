@@ -6,14 +6,17 @@ use icm20948_driver as _; // memory layout + panic handler
 #[cfg(not(feature = "i2c"))]
 #[defmt_test::tests]
 mod tests {
-    use defmt::{assert_eq};
-    use stm32h7xx_hal::spi;
+    use defmt::assert_eq;
+    use icm20948_driver::icm20948;
     use stm32h7xx_hal::gpio;
     use stm32h7xx_hal::prelude::*;
-    use icm20948_driver::icm20948;
+    use stm32h7xx_hal::spi;
 
     struct State {
-        imu: icm20948::IcmImu<spi::Spi<stm32h7xx_hal::pac::SPI1, spi::Enabled>, gpio::PD15<gpio::Output>>
+        imu: icm20948::IcmImu<
+            spi::Spi<stm32h7xx_hal::pac::SPI1, spi::Enabled>,
+            gpio::PD15<gpio::Output>,
+        >,
     }
 
     const MONO_TICK_RATE: u32 = 100;
@@ -21,7 +24,8 @@ mod tests {
 
     #[init]
     fn init() -> State {
-        let device: stm32h7xx_hal::stm32::Peripherals = stm32h7xx_hal::pac::Peripherals::take().unwrap();
+        let device: stm32h7xx_hal::stm32::Peripherals =
+            stm32h7xx_hal::pac::Peripherals::take().unwrap();
 
         defmt::info!("Setting up Power...");
         let pwr = device.PWR.constrain();
@@ -55,9 +59,7 @@ mod tests {
 
         let mut imu = defmt::unwrap!(icm20948::IcmImu::new(spi1, cs));
 
-        State {
-            imu
-        }
+        State { imu }
     }
 
     #[test]

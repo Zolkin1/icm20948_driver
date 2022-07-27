@@ -8,7 +8,7 @@ version = "0.1.0"
 members = ["testsuite"]
 
 [features]
-#default = ["i2c"]
+default = ["i2c"]
 i2c = []
 
 [dependencies]
