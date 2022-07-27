@@ -5,12 +5,12 @@
 /// Thus you cannot use this driver with SPI in a multithreaded context.
 // TODO: Break the functions out into an IMU (or similar) trait
 // TODO: Consider typestating again
-use defmt::{error, Format, Formatter};
+use defmt::{Format, Formatter};
 #[cfg(not(feature = "i2c"))]
 use stm32h7xx_hal::hal::{self, blocking::spi};
 
 #[cfg(feature = "i2c")]
-use stm32h7xx_hal::hal::{self, blocking::i2c};
+use stm32h7xx_hal::hal::{blocking::i2c};
 
 use crate::icm20948::AccStates::*;
 use crate::icm20948::GyroStates::*;
@@ -18,6 +18,7 @@ use crate::icm20948::MagStates::*;
 
 use crate::icm20948::AccSensitivity::*;
 
+#[cfg(not(feature = "i2c"))]
 const READ_REG: bool = true;
 const WRITE_REG: bool = false;
 
@@ -231,6 +232,10 @@ where
 
         self.int_enabled = INT_NOT_ENABLED;
         Ok(())
+    }
+
+    pub fn int_on(&self) -> bool {
+        self.int_enabled == INT_ENABLED
     }
 
     pub fn enable_acc(&mut self) -> Result<(), IcmError<E>> {
@@ -529,7 +534,7 @@ where
     pub fn config_gyro_lpf(&mut self, bw: GyroLPF) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
-        self.databuf[0] = RegistersBank2::AccelConfig.get_addr(READ_REG);
+        self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(READ_REG);
 
         self.cs.set_low().ok();
         self.bus.transfer(&mut self.databuf[0..2])?;
@@ -550,7 +555,7 @@ where
 
         self.databuf[1] = self.databuf[1] | 0x01;
 
-        self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
+        self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
 
         self.cs.set_low().ok();
         self.bus.transfer(&mut self.databuf[0..2])?;
@@ -666,7 +671,7 @@ impl<E> From<E> for IcmError<E> {
 #[cfg(not(feature = "i2c"))]
 impl<BUS, PIN> Format for IcmImu<BUS, PIN> {
     fn format(&self, fmt: Formatter) {
-        defmt::write!(fmt, "IMU{}", self.databuf[0])
+        defmt::write!(fmt, "ICM-20948 IMU")
     }
 }
 
@@ -692,7 +697,6 @@ impl<BUS, E> IcmImu<BUS>
 where
     BUS: i2c::WriteRead<u8, Error = E> + i2c::Write<u8, Error = E>,
 {
-    // TODO: Debug with logic analyzer
     pub fn new(mut bus: BUS, addr: u8) -> Result<Self, IcmError<E>> {
         let mut buf = [0; 3];
         buf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
@@ -741,6 +745,62 @@ where
 
         self.acc_en = AccOff;
         Ok(())
+    }
+
+    pub fn enable_gyro(&mut self) -> Result<(), IcmError<E>> {
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..2], &mut buf)?;
+        self.databuf[1] = buf[0] & 0x38;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.gyro_en = GyroOn;
+        Ok(())
+    }
+
+    pub fn disable_gyro(&mut self) -> Result<(), IcmError<E>> {
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..2], &mut buf)?;
+        self.databuf[1] = buf[0] | 0x07;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.gyro_en = GyroOff;
+        Ok(())
+    }
+
+    pub fn enable_int(&mut self) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
+        self.databuf[1] = 0x01;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.int_enabled = INT_ENABLED;
+        Ok(())
+    }
+
+    pub fn disable_int(&mut self) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
+        self.databuf[1] = 0x00;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.int_enabled = INT_NOT_ENABLED;
+        Ok(())
+    }
+
+    pub fn int_on(&self) -> bool {
+        self.int_enabled == INT_ENABLED
+    }
+
+    pub fn gyro_on(&self) -> bool {
+        self.gyro_en == GyroOn
+    }
+
+    pub fn acc_on(&self) -> bool {
+        self.acc_en == AccOn
+    }
+
+    pub fn mag_on(&self) -> bool {
+        self.mag_en == MagOn
     }
 
     pub fn read_acc_x(&mut self) -> Result<f32, IcmError<E>> {
@@ -798,6 +858,256 @@ where
         buf[2] = self.read_acc_z()?;
 
         Ok(buf)
+    }
+
+    pub fn read_gyro_x(&mut self) -> Result<f32, IcmError<E>> {
+        if self.gyro_en == GyroOff {
+           self.enable_gyro()?;
+        }
+
+        let mut buf = [0, 0];
+        self.databuf[0] = RegistersBank0::GyroXOutH.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[0] = RegistersBank0::GyroXOutL.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[1..2])?;
+
+        Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32
+            / self.accel_sen as f32)
+    }
+
+    pub fn read_gyro_y(&mut self) -> Result<f32, IcmError<E>> {
+        if self.gyro_en == GyroOff {
+            self.enable_gyro()?;
+        }
+
+        let mut buf = [0, 0];
+        self.databuf[0] = RegistersBank0::GyroYOutH.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[0] = RegistersBank0::GyroYOutL.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[1..2])?;
+
+        Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32
+            / self.accel_sen as f32)
+    }
+
+    pub fn read_gyro_z(&mut self) -> Result<f32, IcmError<E>> {
+        if self.gyro_en == GyroOff {
+            self.enable_gyro()?;
+        }
+
+        let mut buf = [0, 0];
+        self.databuf[0] = RegistersBank0::GyroZOutH.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[0] = RegistersBank0::GyroZOutL.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[1..2])?;
+
+        Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32
+            / self.accel_sen as f32)
+    }
+
+    pub fn read_gyro(&mut self) -> Result<[f32; 3], IcmError<E>> {
+        let mut buf = [0.0; 3];
+        buf[0] = self.read_gyro_x()?;
+        buf[1] = self.read_gyro_y()?;
+        buf[2] = self.read_gyro_z()?;
+
+        Ok(buf)
+    }
+
+    pub fn set_gyro_sen(&mut self, gyro_sen: GyroSensitivity) -> Result<(), IcmError<E>> {
+        self.change_bank(REG_BANK_2)?;
+
+        let mut buf = [0];
+
+        self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+
+        match gyro_sen {
+            GyroSensitivity::Sen250dps => self.databuf[1] = buf[0] & 0xF9,
+            GyroSensitivity::Sen500dps => self.databuf[1] = (buf[0] & 0xFB) | 0x02,
+            GyroSensitivity::Sen1000dps => self.databuf[1] = (buf[0] & 0xFD) | 0x04,
+            GyroSensitivity::Sen2000dps => self.databuf[1] = buf[0] | 0x06,
+        };
+
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+
+        match gyro_sen {
+            GyroSensitivity::Sen250dps => self.gyro_sen = GYRO_SEN_0,
+            GyroSensitivity::Sen500dps => self.gyro_sen = GYRO_SEN_1,
+            GyroSensitivity::Sen1000dps => self.gyro_sen = GYRO_SEN_2,
+            GyroSensitivity::Sen2000dps => self.gyro_sen = GYRO_SEN_3,
+        }
+
+        Ok(())
+    }
+
+    pub fn set_acc_sen(&mut self, acc_sen: AccSensitivity) -> Result<(), IcmError<E>> {
+        self.change_bank(REG_BANK_2)?;
+        let mut buf = [0];
+
+        self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
+
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+
+        match acc_sen {
+            Sen2g => self.databuf[1] = buf[0] & 0xF9,
+            Sen4g => self.databuf[1] = (buf[0] & 0xFB) | 0x02,
+            Sen8g => self.databuf[1] = (buf[0] & 0xFD) | 0x04,
+            Sen16g => self.databuf[1] = buf[0] | 0x06,
+        };
+
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+
+        self.accel_sen = acc_sen as u16;
+
+        Ok(())
+    }
+
+    pub fn config_acc_lpf(&mut self, bw: AccLPF) -> Result<(), IcmError<E>> {
+        self.change_bank(REG_BANK_2)?;
+
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
+
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+
+        let mask: u8 = 0x38;
+
+        match bw {
+            AccLPF::BW6 => self.databuf[1] = (buf[0] & !mask) | ((6 << 3) & mask),
+            AccLPF::BW11 => self.databuf[1] = (buf[0] & !mask) | ((5 << 3) & mask),
+            AccLPF::BW24 => self.databuf[1] = (buf[0] & !mask) | ((4 << 3) & mask),
+            AccLPF::BW50 => self.databuf[1] = (buf[0] & !mask) | ((3 << 3) & mask),
+            AccLPF::BW111 => self.databuf[1] = (buf[0] & !mask) | ((2 << 3) & mask),
+            AccLPF::BW246 => self.databuf[1] = (buf[0] & !mask) | ((0 << 3) & mask),
+            AccLPF::Bw473 => self.databuf[1] = (buf[0] & !mask) | ((7 << 3) & mask),
+        }
+
+        self.databuf[1] = self.databuf[1] | 0x01;
+
+        self.bus.write(self.addr,&self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+        Ok(())
+    }
+
+    pub fn config_gyro_lpf(&mut self, bw: GyroLPF) -> Result<(), IcmError<E>> {
+        self.change_bank(REG_BANK_2)?;
+
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
+
+        self.bus.write_read(self.addr, &self.databuf[0..2], &mut buf)?;
+
+        let mask: u8 = 0x38;
+
+        match bw {
+            GyroLPF::BW6 => self.databuf[1] = (buf[0] & !mask) | ((6 << 3) & mask),
+            GyroLPF::BW12 => self.databuf[1] = (buf[0] & !mask) | ((5 << 3) & mask),
+            GyroLPF::BW24 => self.databuf[1] = (buf[0] & !mask) | ((4 << 3) & mask),
+            GyroLPF::BW51 => self.databuf[1] = (buf[0] & !mask) | ((3 << 3) & mask),
+            GyroLPF::BW119 => self.databuf[1] = (buf[0] & !mask) | ((2 << 3) & mask),
+            GyroLPF::BW152 => self.databuf[1] = (buf[0] & !mask) | ((1 << 3) & mask),
+            GyroLPF::BW197 => self.databuf[1] = (buf[0] & !mask) | ((0 << 3) & mask),
+            GyroLPF::BW361 => self.databuf[1] = (buf[0] & !mask) | ((7 << 3) & mask),
+        }
+
+        self.databuf[1] = self.databuf[1] | 0x01;
+
+        self.bus.write(self.addr,&self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+        Ok(())
+    }
+
+    pub fn disable_acc_lpf(&mut self) -> Result<(), IcmError<E>> {
+        self.change_bank(REG_BANK_2)?;
+
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
+
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf)?;
+
+        self.databuf[1] = buf[0] & 0xFE;
+
+        self.bus.write(self.addr,&self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+
+        Ok(())
+    }
+
+    pub fn disable_gyro_lpf(&mut self) -> Result<(), IcmError<E>> {
+        self.change_bank(REG_BANK_2)?;
+
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
+
+        self.bus.write_read(self.addr,&self.databuf[0..2], &mut buf)?;
+
+        self.databuf[1] = buf[0] & 0xFE;
+
+        self.bus.write(self.addr,&self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+
+        Ok(())
+    }
+
+    pub fn config_acc_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
+        if rate < 1_125 {
+            let div = 1_125 / (rate) - 1;
+
+            self.change_bank(REG_BANK_2)?;
+
+            self.databuf[0] = RegistersBank2::AccelSmplrtDiv1.get_addr(WRITE_REG);
+            self.databuf[1] = div.to_be_bytes()[0];
+            self.databuf[2] = RegistersBank2::AccelSmplrtDiv2.get_addr(WRITE_REG);
+            self.databuf[3] = div.to_be_bytes()[1];
+
+            self.bus.write(self.addr, &self.databuf[0..4])?;
+
+            self.change_bank(REG_BANK_0)?;
+
+            Ok(())
+        } else {
+            Err(IcmError::InvalidInput)
+        }
+    }
+
+    pub fn config_gyro_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
+        if rate > 4 {
+            let div: u8 = (1_100 / (rate) - 1) as u8;
+
+            self.change_bank(REG_BANK_2)?;
+
+            self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
+            self.databuf[1] = div;
+
+            self.bus.write(self.addr, &self.databuf[0..2])?;
+
+            self.change_bank(REG_BANK_0)?;
+
+            Ok(())
+        } else {
+            Err(IcmError::InvalidInput)
+        }
+    }
+
+    fn change_bank(&mut self, bank: u8) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::RegBankSel.get_addr(WRITE_REG);
+        self.databuf[1] = bank;
+
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        Ok(())
     }
 }
 

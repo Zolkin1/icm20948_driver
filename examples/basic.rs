@@ -126,14 +126,13 @@ mod app {
         // Configure i2c
 
         let mut imu = unwrap!(icm20948::IcmImu::new(i2c, 0x68));
-
-        /*unwrap!(imu.set_acc_sen(icm20948::AccSensitivity::Sen8g));
         unwrap!(imu.set_gyro_sen(icm20948::GyroSensitivity::Sen1000dps));
+        unwrap!(imu.set_acc_sen(icm20948::AccSensitivity::Sen8g));
 
         unwrap!(imu.config_acc_lpf(icm20948::AccLPF::BW111));
         unwrap!(imu.config_gyro_lpf(icm20948::GyroLPF::BW119));
         unwrap!(imu.config_acc_rate(100));
-        unwrap!(imu.config_gyro_rate(500));*/
+        unwrap!(imu.config_gyro_rate(500));
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
@@ -196,7 +195,7 @@ mod app {
             acc[2]
         );
 
-        /*let gyr = unwrap!(cx.local.imu.read_gyro());
+        let gyr = unwrap!(cx.local.imu.read_gyro());
 
         defmt::debug!(
             "Gyro readings (dps): X: {}, Y: {}, Z: {}",
@@ -204,7 +203,6 @@ mod app {
             gyr[1],
             gyr[2]
         ); // dps is degrees per second
-         */
 
         imufn::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
