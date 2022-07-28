@@ -7,7 +7,7 @@ license = "MIT"
 description = "Device agnostic driver for the ICM-20948 IMU (inertial measurement unit)"
 repository = "https://github.com/Zolkin1/icm20948_driver"
 categories = ["embedded", "no-std", "aerospace::drones"]
-keywords = ["device driver", "IMU", "Inertial measurement unit", "icm 20948"]
+keywords = ["device_driver", "IMU", "icm-20948"]
 
 [dependencies]
 embedded-hal = "0.2.7"
