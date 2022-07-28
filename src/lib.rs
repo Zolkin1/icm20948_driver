@@ -9,6 +9,7 @@
 //!
 //! The driver is split into two parts: an I2C part and an SPI part. All functions are implemented for both bus types.
 //!
+//! This package is still mostly experimental. By v0.2.0 I am hoping most the large kinks are ironed out.
 //! Extensive testing has not been done on the LPFs and data rates, although that will come soon.
 //!
 //! You can instantiate multiple objects if you have multiple IMUs. The driver assumes control of
