@@ -1,3 +1,6 @@
+// Copyright (c) 2022, Zachary D. Olkin.
+// This code is provided under the MIT license.
+
 #![deny(warnings)]
 #![no_main]
 #![no_std]

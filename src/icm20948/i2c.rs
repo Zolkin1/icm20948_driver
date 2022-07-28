@@ -1,3 +1,6 @@
+// Copyright (c) 2022, Zachary D. Olkin.
+// This code is provided under the MIT license.
+
 use crate::icm20948::AccLPF;
 use crate::icm20948::AccSensitivity;
 use crate::icm20948::AccStates::{self, *};
@@ -39,6 +42,11 @@ impl<BUS, E> IcmImu<BUS>
 where
     BUS: i2c::WriteRead<u8, Error = E> + i2c::Write<u8, Error = E>,
 {
+    /// Create and initialize a new IMU driver.
+    ///
+    /// The I2C bus is given as `bus`
+    ///
+    /// The 7-bit address is specified as `addr`
     pub fn new(mut bus: BUS, addr: u8) -> Result<Self, IcmError<E>> {
         let mut buf = [0; 3];
         buf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
@@ -58,6 +66,9 @@ where
         })
     }
 
+    /// Who Am I? Reads the wai register and reports the value.
+    ///
+    /// Useful for testing that the IMU is properly connected. See the data sheet for the expected return value.
     pub fn wai(&mut self) -> Result<u8, IcmError<E>> {
         let mut buf = [0];
         self.databuf[0] = RegistersBank0::Wai.get_addr(WRITE_REG);
@@ -66,6 +77,7 @@ where
         Ok(buf[0])
     }
 
+    /// Enables the accelerometer.
     pub fn enable_acc(&mut self) -> Result<(), IcmError<E>> {
         let mut buf = [0];
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
@@ -78,6 +90,7 @@ where
         Ok(())
     }
 
+    /// Disables the accelerometer.
     pub fn disable_acc(&mut self) -> Result<(), IcmError<E>> {
         let mut buf = [0];
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
@@ -90,6 +103,7 @@ where
         Ok(())
     }
 
+    /// Enables the gyro.
     pub fn enable_gyro(&mut self) -> Result<(), IcmError<E>> {
         let mut buf = [0];
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
@@ -102,6 +116,7 @@ where
         Ok(())
     }
 
+    /// Disables the gyro.
     pub fn disable_gyro(&mut self) -> Result<(), IcmError<E>> {
         let mut buf = [0];
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
@@ -114,6 +129,7 @@ where
         Ok(())
     }
 
+    /// Enable the raw data ready interrupt.
     pub fn enable_int(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
@@ -123,6 +139,7 @@ where
         Ok(())
     }
 
+    /// Disable the raw data ready interrupt.
     pub fn disable_int(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
         self.databuf[1] = 0x00;
@@ -132,22 +149,28 @@ where
         Ok(())
     }
 
+    /// Checks if the interrupt is enabled. Returns true if enabled, false if otherwise.
     pub fn int_on(&self) -> bool {
         self.int_enabled == INT_ENABLED
     }
 
+    /// Checks if the gyro is enabled. Returns true if enabled, false if otherwise.
     pub fn gyro_on(&self) -> bool {
         self.gyro_en == GyroOn
     }
 
+    /// Checks if the accelerometer is enabled. Returns true if enabled, false if otherwise.
     pub fn acc_on(&self) -> bool {
         self.acc_en == AccOn
     }
 
+    /// Checks if the magnetometer is enabled. Returns true if enabled, false if otherwise.
+    /// NOTE: Currently the magnetometer cannot be used.
     pub fn mag_on(&self) -> bool {
         self.mag_en == MagOn
     }
 
+    /// Gets the accelerometer reading in the X direction.
     pub fn read_acc_x(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en == AccOff {
             self.enable_acc()?;
@@ -165,6 +188,7 @@ where
         Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32 / self.accel_sen as f32)
     }
 
+    /// Gets the accelerometer reading in the Y direction.
     pub fn read_acc_y(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en == AccOff {
             self.enable_acc()?;
@@ -182,6 +206,7 @@ where
         Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32 / self.accel_sen as f32)
     }
 
+    /// Gets the accelerometer reading in the Z direction.
     pub fn read_acc_z(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en == AccOff {
             self.enable_acc()?;
@@ -199,6 +224,7 @@ where
         Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32 / self.accel_sen as f32)
     }
 
+    /// Reads all three accelerometer values and returns them as an array.
     pub fn read_acc(&mut self) -> Result<[f32; 3], IcmError<E>> {
         let mut buf = [0.0, 0.0, 0.0];
         buf[0] = self.read_acc_x()?;
@@ -208,6 +234,7 @@ where
         Ok(buf)
     }
 
+    /// Gets the gyro reading in the X direction.
     pub fn read_gyro_x(&mut self) -> Result<f32, IcmError<E>> {
         if self.gyro_en == GyroOff {
             self.enable_gyro()?;
@@ -225,6 +252,7 @@ where
         Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32 / self.accel_sen as f32)
     }
 
+    /// Gets the gyro reading in the Y direction.
     pub fn read_gyro_y(&mut self) -> Result<f32, IcmError<E>> {
         if self.gyro_en == GyroOff {
             self.enable_gyro()?;
@@ -242,6 +270,7 @@ where
         Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32 / self.accel_sen as f32)
     }
 
+    /// Gets the gyro reading in the Z direction.
     pub fn read_gyro_z(&mut self) -> Result<f32, IcmError<E>> {
         if self.gyro_en == GyroOff {
             self.enable_gyro()?;
@@ -259,6 +288,7 @@ where
         Ok((((buf[0] as i16) << 8) | (buf[1] as i16)) as f32 / self.accel_sen as f32)
     }
 
+    /// Reads all three gyro values and returns them as an array.
     pub fn read_gyro(&mut self) -> Result<[f32; 3], IcmError<E>> {
         let mut buf = [0.0; 3];
         buf[0] = self.read_gyro_x()?;
@@ -268,6 +298,9 @@ where
         Ok(buf)
     }
 
+    /// Sets the sensitivity of the gyro.
+    ///
+    /// `gyro_sen` specifies the desired sensitivity. See the data sheet for more details.
     pub fn set_gyro_sen(&mut self, gyro_sen: GyroSensitivity) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -298,6 +331,9 @@ where
         Ok(())
     }
 
+    /// Sets the sensitivity of the accelerometer.
+    ///
+    /// `acc_sen` specifies the desired sensitivity. See the data sheet for more details.
     pub fn set_acc_sen(&mut self, acc_sen: AccSensitivity) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
         let mut buf = [0];
@@ -327,6 +363,9 @@ where
         Ok(())
     }
 
+    /// Configures the Low Pass Filter (LPF) for the accelerometer.
+    ///
+    /// `bw` is the 3DB bandwidth of the LPF. See the data sheet for more details.
     pub fn config_acc_lpf(&mut self, bw: AccLPF) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -356,6 +395,9 @@ where
         Ok(())
     }
 
+    /// Configures the Low Pass Filter (LPF) for the gyro.
+    ///
+    /// `bw` is the 3DB bandwidth of the LPF. See the data sheet for more details.
     pub fn config_gyro_lpf(&mut self, bw: GyroLPF) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -386,6 +428,7 @@ where
         Ok(())
     }
 
+    /// Disables the low pass filter for the accelerometer.
     pub fn disable_acc_lpf(&mut self) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -404,6 +447,7 @@ where
         Ok(())
     }
 
+    /// Disables the low pass filter for the gyro.
     pub fn disable_gyro_lpf(&mut self) -> Result<(), IcmError<E>> {
         self.change_bank(REG_BANK_2)?;
 
@@ -422,6 +466,11 @@ where
         Ok(())
     }
 
+    /// Configure the data rate for the accelerometer.
+    ///
+    /// Rate must be less than 1.125kHz since that is the maximum of the accelerometer.
+    /// If rate is > 1.125kHz then an InvalidInput will be returned.
+    /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     pub fn config_acc_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
         if rate < 1_125 {
             let div = 1_125 / (rate) - 1;
@@ -443,6 +492,11 @@ where
         }
     }
 
+    /// Configure the data rate for the gyro.
+    ///
+    /// Rate must be less than 1.1kHz since that is the maximum of the gyro.
+    /// If rate is > 1.1kHz then an InvalidInput will be returned.
+    /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     pub fn config_gyro_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
         if rate > 4 {
             let div: u8 = (1_100 / (rate) - 1) as u8;

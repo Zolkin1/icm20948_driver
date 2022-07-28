@@ -1,3 +1,6 @@
+// Copyright (c) 2022, Zachary D. Olkin.
+// This code is provided under the MIT license.
+
 /// The i2c module holds all of the driver implementations when using an I2C bus to communicate with the device
 pub mod i2c;
 
@@ -27,61 +30,107 @@ const REG_BANK_0: u8 = 0x00;
 const REG_BANK_2: u8 = 0x20;
 //const REG_BANK_3: u8 = 0x30;
 
+/// States of the accelerometer: On or Off
 #[derive(PartialEq, Format)]
 pub enum AccStates {
+    /// On
     AccOn,
+    /// Off
     AccOff,
 }
 
+/// States of the gyro: On or Off
 #[derive(PartialEq, Format)]
 pub enum GyroStates {
+    /// On
     GyroOn,
+    /// Off
     GyroOff,
 }
 
+/// States of the magnetometer: On or Off
 #[derive(PartialEq, Format)]
 pub enum MagStates {
+    /// On
     MagOn,
+    /// Off
     MagOff,
 }
 
+/// Accelerometer sensitivity options as specified in the data sheet in g's.
 pub enum AccSensitivity {
+    /// 2g of sensitivity
     Sen2g,
+    /// 4g of sensitivity
     Sen4g,
+    /// 8g of sensitivity
     Sen8g,
+    /// 16g of sensitivity
     Sen16g,
 }
 
+/// Gyro sensitivity options as specified in the data sheet in degrees per second (dps).
 pub enum GyroSensitivity {
+    /// 250 dps of sensitivity
     Sen250dps,
+    /// 500 dps of sensitivity
     Sen500dps,
+    /// 1000 dps of sensitivity
     Sen1000dps,
+    /// 2000 dps of sensitivity
     Sen2000dps,
 }
 
+/// Accelerometer Low Pass Filter (LPF) options as specified in the data sheet.
+/// All values are in the 3DB BW of the LPF.
 pub enum AccLPF {
+    /// 246.0Hz 3DB BW
     BW246,
+    /// 111.4Hz 3DB BW
     BW111,
+    /// 50.4Hz 3DB BW
     BW50,
+    /// 23.9Hz 3DB BW
     BW24,
+    /// 11.5Hz 3DB BW
     BW11,
+    /// 5.7Hz 3DB BW
     BW6,
+    /// 473.0Hz 3DB BW
     Bw473,
 }
 
+/// Gyro Low Pass Filter (LPF) options as specified in the data sheet.
+/// All values are in the 3DB BW of the LPF.
 pub enum GyroLPF {
+    /// 196.6Hz 3DB BW
     BW197,
+    /// 151.8Hz 3DB BW
     BW152,
+    /// 119.5Hz 3DB BW
     BW119,
+    /// 51.2Hz 3DB BW
     BW51,
+    /// 23.9Hz 3DB BW
     BW24,
+    /// 11.6Hz 3DB BW
     BW12,
+    /// 5.7Hz 3DB BW
     BW6,
+    /// 361.4Hz 3DB BW
     BW361,
 }
 
+/// The possible errors that the driver can return.
+///
+/// The `BusError` option is for when a HAL function using either the SPI or I2C bus fails.
+/// This may be caused by a number of reasons. For example, using the wrong 7-bit address with the I2C bus will cause a bus error.
+///
+/// `InvalidInput` is for when an input to a driver function is unacceptable.
 pub enum IcmError<E> {
+    /// An error occurred when using the bus
     BusError(E),
+    /// An invalid input was passed to the function
     InvalidInput,
 }
 
