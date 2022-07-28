@@ -6,3 +6,6 @@ Cargo.lock
 /.run
 
 .DS_Store
+memory.x
+
+credentials.toml

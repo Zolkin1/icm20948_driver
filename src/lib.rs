@@ -16,7 +16,7 @@
 //! Currently, there is no support for the magnetometer, the sensor acting like an I2C master, the FIFO, the FSYNC, or the DMP.
 //! I am hoping to add support for the FIFO and magnetometer soon. Using the sensor as an I2C master over the auxiliary bus is unlikely to ever happen.
 //!
-//! The github repo can be found at <https://github.com/Zolkin1/icm20948_driver>.
+//! The github repo can be found [here](https://github.com/Zolkin1/icm20948_driver).
 
 #![deny(missing_docs)]
 #![no_std]
