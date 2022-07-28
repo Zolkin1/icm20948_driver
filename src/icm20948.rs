@@ -1,13 +1,12 @@
 // Copyright (c) 2022, Zachary D. Olkin.
 // This code is provided under the MIT license.
 
+use defmt::{Format, Formatter};
+
 /// The i2c module holds all of the driver implementations when using an I2C bus to communicate with the device
 pub mod i2c;
-
 /// The SPI module holds all of the driver implementations when using an SPI bus to communicate with the device
 pub mod spi;
-
-use defmt::{Format, Formatter};
 
 const READ_REG: bool = true;
 const WRITE_REG: bool = false;
