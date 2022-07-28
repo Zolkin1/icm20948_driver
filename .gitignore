@@ -4,3 +4,5 @@ Cargo.lock
 /.idea
 
 /.run
+
+.DS_Store
