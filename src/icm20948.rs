@@ -126,6 +126,7 @@ pub enum GyroLPF {
 /// This may be caused by a number of reasons. For example, using the wrong 7-bit address with the I2C bus will cause a bus error.
 ///
 /// `InvalidInput` is for when an input to a driver function is unacceptable.
+#[derive(PartialEq)]
 pub enum IcmError<E> {
     /// An error occurred when using the bus
     BusError(E),
@@ -168,6 +169,7 @@ enum RegistersBank2 {
     AccelSmplrtDiv1,
     AccelSmplrtDiv2,
     GyroSmplrtDiv,
+    OdrAlignEn,
 }
 
 impl<E> From<E> for IcmError<E> {
@@ -241,6 +243,7 @@ impl RegistersBank2 {
                 RegistersBank2::AccelSmplrtDiv1 => 1 << 7 | 0x10,
                 RegistersBank2::AccelSmplrtDiv2 => 1 << 7 | 0x11,
                 RegistersBank2::AccelConfig => 1 << 7 | 0x14,
+                RegistersBank2::OdrAlignEn => 1 << 7 | 0x09,
             }
         } else {
             match *self {
@@ -249,6 +252,7 @@ impl RegistersBank2 {
                 RegistersBank2::AccelSmplrtDiv1 => 0x10,
                 RegistersBank2::AccelSmplrtDiv2 => 0x11,
                 RegistersBank2::AccelConfig => 0x14,
+                RegistersBank2::OdrAlignEn => 0x09,
             }
         }
     }

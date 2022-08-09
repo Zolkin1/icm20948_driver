@@ -468,7 +468,7 @@ where
 
     /// Configure the data rate for the accelerometer.
     ///
-    /// Rate must be less than 1.125kHz since that is the maximum of the accelerometer.
+    /// Rate must be less than 1.125kHz since that is the maximum of the accelerometer. Rate is specified in Hz.
     /// If rate is > 1.125kHz then an InvalidInput will be returned.
     /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     pub fn config_acc_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
@@ -494,12 +494,12 @@ where
 
     /// Configure the data rate for the gyro.
     ///
-    /// Rate must be less than 1.1kHz since that is the maximum of the gyro.
+    /// Rate must be less than 1.1kHz since that is the maximum of the gyro. Rate is specified in Hz.
     /// If rate is > 1.1kHz then an InvalidInput will be returned.
     /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     pub fn config_gyro_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
         if rate > 4 {
-            let div: u8 = (1_100 / (rate) - 1) as u8;
+            let div: u8 = (1_125 / (rate) - 1) as u8;
 
             self.change_bank(REG_BANK_2)?;
 
@@ -514,6 +514,21 @@ where
         } else {
             Err(IcmError::InvalidInput)
         }
+    }
+
+    /// Resets the IMU the wakes it up from sleep mode.
+    pub fn reset(&mut self) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
+        self.databuf[1] = 0x80;
+
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
+        self.databuf[1] = 0x01;
+
+        self.bus.write(self.addr, &mut self.databuf[0..2])?;
+
+        Ok(())
     }
 
     fn change_bank(&mut self, bank: u8) -> Result<(), IcmError<E>> {
