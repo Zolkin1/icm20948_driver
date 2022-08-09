@@ -121,10 +121,10 @@ where
         self.cs.set_low().ok();
 
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(READ_REG);
-        self.bus.transfer(&mut self.databuf[0..0])?;
+        self.bus.transfer(&mut self.databuf[0..2])?;
         self.databuf[1] = self.databuf[0] & 0x07;
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
-        self.bus.transfer(&mut self.databuf[0..1])?;
+        self.bus.transfer(&mut self.databuf[0..2])?;
 
         self.cs.set_high().ok();
 
@@ -139,10 +139,10 @@ where
         self.cs.set_low().ok();
 
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(READ_REG);
-        self.bus.transfer(&mut self.databuf[0..0])?;
+        self.bus.transfer(&mut self.databuf[0..2])?;
         self.databuf[1] = self.databuf[0] | 0x38;
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
-        self.bus.transfer(&mut self.databuf[0..1])?;
+        self.bus.transfer(&mut self.databuf[0..2])?;
 
         self.cs.set_high().ok();
 
@@ -525,7 +525,7 @@ where
     /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     ///
     /// Note that while the gyro is enabled the gyro ODR (output data rate) will determine the interrupt frequency.
-    /// But if the accelerometer frequency is lower than the gyro frequency then it will not be updated at every interrupt.
+    /// If the accelerometer frequency is lower than the gyro frequency then it will not be updated at every interrupt.
     pub fn config_acc_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
         if rate < 1_125 {
             let div = 1_125 / (rate) - 1;
@@ -562,7 +562,7 @@ where
 
     /// Configure the data rate for the gyro.
     ///
-    /// Rate must be less than 1.1kHz since that is the maximum of the gyro. Rate is specified in Hz.
+    /// Rate must be less than 1.125kHz since that is the maximum of the gyro. Rate is specified in Hz.
     /// If rate is > 1.1kHz then an InvalidInput will be returned.
     /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     ///
@@ -595,10 +595,78 @@ where
         }
     }
 
+    /// Configure the accelerometer data rate by directly modifying the sample rate divider.
+    ///
+    /// The user should calculate what the resulting data rate will be before using this function.
+    ///
+    /// div specifies the divider and must be less than 4096.
+    pub fn config_acc_rate_div(&mut self, mut div: u16) -> Result<(), IcmError<E>> {
+        if div < 4096 {
+            div = div - 1;
+
+            self.change_bank(REG_BANK_2)?;
+
+            self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
+            self.databuf[1] = 0x01;
+
+            self.cs.set_low().ok();
+            self.bus.transfer(&mut self.databuf[0..2])?;
+            self.cs.set_high().ok();
+
+            self.databuf[0] = RegistersBank2::AccelSmplrtDiv1.get_addr(WRITE_REG);
+            self.databuf[1] = div.to_be_bytes()[0];
+            self.databuf[2] = RegistersBank2::AccelSmplrtDiv2.get_addr(WRITE_REG);
+            self.databuf[3] = div.to_be_bytes()[1];
+
+            self.cs.set_low().ok();
+            self.bus.transfer(&mut self.databuf[0..2])?;
+            self.cs.set_high().ok();
+
+            self.cs.set_low().ok();
+            self.bus.transfer(&mut self.databuf[2..4])?;
+            self.cs.set_high().ok();
+
+            self.change_bank(REG_BANK_0)?;
+
+            Ok(())
+        } else {
+            Err(IcmError::InvalidInput)
+        }
+    }
+
+    /// Configure the gyroscope data rate by directly modifying the sample rate divider.
+    ///
+    /// The user should calculate what the resulting data rate will be before using this function.
+    ///
+    /// div specifies the divider to use.
+    pub fn config_gyro_rate_div(&mut self, mut div: u8) -> Result<(), IcmError<E>> {
+        div = div - 1;
+
+        self.change_bank(REG_BANK_2)?;
+
+        self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
+        self.databuf[1] = 0x01;
+
+        self.cs.set_low().ok();
+        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.cs.set_high().ok();
+
+        self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
+        self.databuf[1] = div;
+
+        self.cs.set_low().ok();
+        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.cs.set_high().ok();
+
+        self.change_bank(REG_BANK_0)?;
+
+        Ok(())
+    }
+
     /// Resets the IMU the wakes it up from sleep mode.
     /// After the reset a 20ms sleep is suggested.
     ///
-    /// TODO: Unstable and not suggested for use.
+    /// TODO: Unstable and NOT suggested for use.
     pub fn reset(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x80;

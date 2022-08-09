@@ -516,7 +516,56 @@ where
         }
     }
 
+    /// Configure the accelerometer data rate by directly modifying the sample rate divider.
+    ///
+    /// The user should calculate what the resulting data rate will be before using this function.
+    ///
+    /// div specifies the divider and must be less than 4096.
+    pub fn config_acc_rate_div(&mut self, mut div: u16) -> Result<(), IcmError<E>> {
+        if div < 4096 {
+            div = div - 1;
+
+            self.change_bank(REG_BANK_2)?;
+
+            self.databuf[0] = RegistersBank2::AccelSmplrtDiv1.get_addr(WRITE_REG);
+            self.databuf[1] = div.to_be_bytes()[0];
+            self.databuf[2] = RegistersBank2::AccelSmplrtDiv2.get_addr(WRITE_REG);
+            self.databuf[3] = div.to_be_bytes()[1];
+
+            self.bus.write(self.addr, &self.databuf[0..4])?;
+
+            self.change_bank(REG_BANK_0)?;
+
+            Ok(())
+        } else {
+            Err(IcmError::InvalidInput)
+        }
+    }
+
+    /// Configure the gyroscope data rate by directly modifying the sample rate divider.
+    ///
+    /// The user should calculate what the resulting data rate will be before using this function.
+    ///
+    /// div specifies the divider to use.
+    pub fn config_gyro_rate_div(&mut self, mut div: u8) -> Result<(), IcmError<E>> {
+        div = div - 1;
+
+        self.change_bank(REG_BANK_2)?;
+
+        self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
+        self.databuf[1] = div;
+
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+
+        Ok(())
+    }
+
     /// Resets the IMU the wakes it up from sleep mode.
+    /// After the reset a 20ms sleep is suggested.
+    ///
+    /// TODO: Unstable and NOT suggested for use.
     pub fn reset(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x80;
