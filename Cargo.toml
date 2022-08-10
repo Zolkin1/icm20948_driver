@@ -2,7 +2,7 @@
 authors = ["Zachary Olkin"]
 name = "icm20948_driver"
 edition = "2018"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT"
 description = "Device agnostic driver for the ICM-20948 IMU (inertial measurement unit)"
 repository = "https://github.com/Zolkin1/icm20948_driver"

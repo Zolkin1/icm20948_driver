@@ -3,7 +3,7 @@
 
 //! Device agnostic driver for the icm-20948 IMU (inertial measurement unit).
 //! The driver depends on [embedded-hal](https://crates.io/crates/embedded-hal/), so as long as the HAL you use implements those traits, then
-//! this driver should be compatible.
+//! this driver will be compatible.
 //!
 //! The driver is split into two parts: an I2C part and an SPI part. All functions are implemented for both bus types.
 //!
@@ -11,7 +11,7 @@
 //! the bus and thus it is recommended to use [shared-bus](https://crates.io/crates/shared-bus) if you have multiple device drivers that need control of the bus.
 //!
 //! Currently, there is no support for the magnetometer, temperature sensor, the sensor acting like an I2C master, the FIFO, the FSYNC, or the DMP.
-//! I am hoping to add support for the FIFO, magnetometer, and temperature sensor soon.
+//! I am hoping to add support for the FIFO, magnetometer, and temperature sensor soon. See the change log in the repo for recent changes.
 //!
 //! # Examples
 //! Examples can be found [here](https://github.com/Zolkin1/icm20948_driver/tree/main/examples).

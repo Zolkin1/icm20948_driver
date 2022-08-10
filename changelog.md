@@ -1,6 +1,6 @@
 # icm20948_driver change log
 
-## v X.Y.Z
+## v 0.2.0
 * Removed unnecessary cortex-m dependency.
 * Made defmt a feature rather than required.
 * Added functions to specify the sample rate dividers directly.
