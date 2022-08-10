@@ -39,7 +39,7 @@ dispatchers = [SPI1]
 mod app {
     use defmt::unwrap;
     use icm20948_driver::icm20948;
-    use stm32h7xx_hal::gpio::{self, Output, Input, Edge, PushPull, ExtiPin};
+    use stm32h7xx_hal::gpio::{self, Edge, ExtiPin, Input, Output, PushPull};
     use stm32h7xx_hal::i2c;
     use stm32h7xx_hal::pac::I2C1;
     use stm32h7xx_hal::prelude::*;
@@ -107,15 +107,15 @@ mod app {
 
         unwrap!(imu.reset());
         defmt::debug!("IMU reset!");
-        cortex_m::asm::delay(SYS_TICK_RATE/10);        // Post reset delay
-        unwrap!(imu.config_gyro_rate_div(10));                // While gyro is enabled this determines the ODR (output data rate). See data sheet.
+        cortex_m::asm::delay(SYS_TICK_RATE / 10); // Post reset delay
+        unwrap!(imu.config_gyro_rate_div(10)); // While gyro is enabled this determines the ODR (output data rate). See data sheet.
         unwrap!(imu.config_acc_rate_div(10));
-        unwrap!(imu.enable_int());                            // Enable the interrupt
+        unwrap!(imu.enable_int()); // Enable the interrupt
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
         ))
-            .unwrap();
+        .unwrap();
 
         (
             Shared {},
@@ -149,7 +149,7 @@ mod app {
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
         ))
-            .unwrap();
+        .unwrap();
     }
 
     #[task(binds = EXTI3, local = [imu, int_pin])]

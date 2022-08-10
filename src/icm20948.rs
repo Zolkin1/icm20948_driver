@@ -126,10 +126,7 @@ pub enum GyroLPF {
 /// This may be caused by a number of reasons. For example, using the wrong 7-bit address with the I2C bus will cause a bus error.
 ///
 /// `InvalidInput` is for when an input to a driver function is unacceptable.
-#[derive(Debug)]
-#[derive(PartialEq)]
-#[derive(Copy)]
-#[derive(Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum IcmError<E> {
     /// An error occurred when using the bus
     BusError(E),

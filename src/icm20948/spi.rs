@@ -684,7 +684,7 @@ where
         // TODO: Replace with a delay
         let mut j = 0;
         for i in 1..2000000 {
-            j = j + i/10000;
+            j = j + i / 10000;
         }
 
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);

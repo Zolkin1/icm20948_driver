@@ -60,7 +60,10 @@ mod app {
     struct Local {
         led: gpio::PE1<Output<PushPull>>,
         state: bool,
-        imu: icm20948_driver::icm20948::spi::IcmImu<spi::Spi<SPI1, spi::Enabled>, gpio::PD15<Output>>,
+        imu: icm20948_driver::icm20948::spi::IcmImu<
+            spi::Spi<SPI1, spi::Enabled>,
+            gpio::PD15<Output>,
+        >,
     }
 
     #[init]

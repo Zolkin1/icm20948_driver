@@ -38,7 +38,7 @@ dispatchers = [SPI1]
 mod app {
     use defmt::unwrap;
     use icm20948_driver::icm20948;
-    use stm32h7xx_hal::gpio::{self, Edge, Output, Input, PushPull, ExtiPin};
+    use stm32h7xx_hal::gpio::{self, Edge, ExtiPin, Input, Output, PushPull};
     use stm32h7xx_hal::pac::SPI1;
     use stm32h7xx_hal::prelude::*;
     use stm32h7xx_hal::spi;
@@ -93,7 +93,6 @@ mod app {
         int_pin.trigger_on_edge(&mut exti, Edge::Rising);
         int_pin.enable_interrupt(&mut exti);
 
-
         // Configure the SPI bus
         let gpioa = device.GPIOA.split(ccdr.peripheral.GPIOA);
         let gpiob = device.GPIOB.split(ccdr.peripheral.GPIOB);
@@ -117,17 +116,17 @@ mod app {
 
         unwrap!(imu.reset());
         defmt::debug!("IMU reset!");
-        cortex_m::asm::delay(SYS_TICK_RATE);        // Post reset delay
-        unwrap!(imu.config_gyro_rate_div(5));              // While gyro is enabled this determines the ODR (output data rate). See data sheet.
+        cortex_m::asm::delay(SYS_TICK_RATE); // Post reset delay
+        unwrap!(imu.config_gyro_rate_div(5)); // While gyro is enabled this determines the ODR (output data rate). See data sheet.
         unwrap!(imu.config_acc_rate_div(5));
-        unwrap!(imu.enable_int());                         // Enable the interrupt
+        unwrap!(imu.enable_int()); // Enable the interrupt
 
-        cortex_m::asm::delay(SYS_TICK_RATE/2);
+        cortex_m::asm::delay(SYS_TICK_RATE / 2);
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
         ))
-            .unwrap();
+        .unwrap();
 
         (
             Shared {},
@@ -161,7 +160,7 @@ mod app {
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),
         ))
-            .unwrap();
+        .unwrap();
     }
 
     #[task(binds = EXTI3, local = [imu, int_pin])]
@@ -175,7 +174,7 @@ mod app {
             acc[2]
         );
 
-       let gyr = unwrap!(cx.local.imu.read_gyro());
+        let gyr = unwrap!(cx.local.imu.read_gyro());
 
         defmt::debug!(
             "Gyro readings (dps): X: {}, Y: {}, Z: {}",
