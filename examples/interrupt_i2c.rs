@@ -107,10 +107,10 @@ mod app {
 
         unwrap!(imu.reset());
         defmt::debug!("IMU reset!");
-        cortex_m::asm::delay(SYS_TICK_RATE);        // Post reset delay
-        unwrap!(imu.config_gyro_rate_div(5));              // While gyro is enabled this determines the ODR (output data rate). See data sheet.
-        unwrap!(imu.config_acc_rate_div(5));
-        unwrap!(imu.enable_int());                         // Enable the interrupt
+        cortex_m::asm::delay(SYS_TICK_RATE/10);        // Post reset delay
+        unwrap!(imu.config_gyro_rate_div(10));                // While gyro is enabled this determines the ODR (output data rate). See data sheet.
+        unwrap!(imu.config_acc_rate_div(10));
+        unwrap!(imu.enable_int());                            // Enable the interrupt
 
         heartbeat::spawn_after(Duration::<u64, 1, MONO_TICK_RATE>::from_ticks(
             MONO_TICK_RATE.into(),

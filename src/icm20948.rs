@@ -185,8 +185,8 @@ impl<E> From<E> for IcmError<E> {
 impl<E: Format> Format for IcmError<E> {
     fn format(&self, fmt: Formatter) {
         match &*self {
-            IcmError::BusError(e) => defmt::write!(fmt, "Bus Error: {}!", e),
-            IcmError::InvalidInput => defmt::write!(fmt, "Invalid input in the function!"),
+            IcmError::BusError(e) => defmt::write!(fmt, "Bus Error: {}", e),
+            IcmError::InvalidInput => defmt::write!(fmt, "Invalid input in the function"),
         }
     }
 }

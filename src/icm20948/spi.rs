@@ -563,12 +563,14 @@ where
     /// Configure the data rate for the gyro.
     ///
     /// Rate must be less than 1.125kHz since that is the maximum of the gyro. Rate is specified in Hz.
-    /// If rate is > 1.1kHz then an InvalidInput will be returned.
+    /// If rate is > 1.125kHz then an InvalidInput will be returned.
+    /// Rate must be > 4 otherwise the divisor will not fit in a u8.
+    ///
     /// Since the divisor is specified as an integer, the exact rate may not be met if it would require a floating point divisor.
     ///
     /// Note that while the gyro is enabled the gyro ODR (output data rate) will determine the interrupt frequency.
     pub fn config_gyro_rate(&mut self, rate: u16) -> Result<(), IcmError<E>> {
-        if rate > 4 {
+        if rate > 4 && rate < 1125 {
             let div: u8 = (1_125 / (rate) - 1) as u8;
 
             self.change_bank(REG_BANK_2)?;
@@ -666,7 +668,11 @@ where
     /// Resets the IMU the wakes it up from sleep mode.
     /// After the reset a 20ms sleep is suggested.
     ///
-    /// TODO: Unstable and NOT suggested for use.
+    /// If the IMU is not reset after writing the registers then the registers keep their same value.
+    /// This function is useful for testing code but currently should not be used in production.
+    /// You can also reset the IMU by power cycling it.
+    ///
+    /// TODO: NOT suggested for use.
     pub fn reset(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x80;
