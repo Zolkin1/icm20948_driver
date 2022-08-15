@@ -811,26 +811,23 @@ where
     }
 
     // ----------------- Reset ----------------- //
-    /// Resets the IMU the wakes it up from sleep mode.
+    /// Resets the IMU.
     /// After the reset a 20ms sleep is suggested.
     ///
     /// If the IMU is not reset after writing the registers then the registers keep their same value.
     /// This function is useful for testing code but currently should not be used in production.
     /// You can also reset the IMU by power cycling it.
-    ///
-    /// TODO: NOT suggested for use.
     pub fn reset(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x80;
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        // TODO: Replace with a delay
-        let mut j = 0;
-        for i in 1..2000000 {
-            j = j + i / 10000;
-        }
+        Ok(())
+    }
 
+    /// Wakes the IMU from sleep mode.
+    pub fn wake(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
 
