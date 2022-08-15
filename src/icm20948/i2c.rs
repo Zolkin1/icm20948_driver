@@ -1,21 +1,22 @@
 // Copyright (c) 2022, Zachary D. Olkin.
 // This code is provided under the MIT license.
 
-use crate::icm20948::AccLPF;
+use crate::icm20948::{AccLPF, TEMP_SEN};
 use crate::icm20948::AccSensitivity;
 use crate::icm20948::AccStates::{self, *};
+use crate::icm20948::TempStates::{self, *};
+use crate::icm20948::MagRates;
 use crate::icm20948::GyroLPF;
 use crate::icm20948::GyroSensitivity;
 use crate::icm20948::GyroStates::{self, *};
 use crate::icm20948::IcmError;
 use crate::icm20948::MagStates::{self, *};
-use crate::icm20948::RegistersBank0;
-use crate::icm20948::RegistersBank2;
+use crate::icm20948::{RegistersBank0, RegistersBank2, RegistersBank3};
 use crate::icm20948::{
     ACCEL_SEN_0, ACCEL_SEN_1, ACCEL_SEN_2, ACCEL_SEN_3, GYRO_SEN_0, GYRO_SEN_1, GYRO_SEN_2,
-    GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, WRITE_REG,
+    GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, WRITE_REG, MAG_ADDR, MAG_SEN,
 };
-use crate::icm20948::{REG_BANK_0, REG_BANK_2};
+use crate::icm20948::{REG_BANK_0, REG_BANK_2, REG_BANK_3};
 use defmt::{Format, Formatter};
 
 use embedded_hal::blocking::i2c;
@@ -27,6 +28,7 @@ pub struct IcmImu<BUS> {
     acc_en: AccStates,
     gyro_en: GyroStates,
     mag_en: MagStates,
+    temp_en: TempStates,
 
     databuf: [u8; 5],
 
@@ -58,6 +60,7 @@ where
             acc_en: AccOn,
             gyro_en: GyroOn,
             mag_en: MagOff,
+            temp_en: TempOn,
             accel_sen: ACCEL_SEN_0,
             gyro_sen: GYRO_SEN_0,
             int_enabled: INT_NOT_ENABLED,
@@ -165,12 +168,12 @@ where
     }
 
     /// Checks if the magnetometer is enabled. Returns true if enabled, false if otherwise.
-    /// NOTE: Currently the magnetometer cannot be used.
     pub fn mag_on(&self) -> bool {
         self.mag_en == MagOn
     }
 
     /// Gets the accelerometer reading in the X direction.
+    /// If the accelerometer is off, this function will first turn it on.
     pub fn read_acc_x(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en == AccOff {
             self.enable_acc()?;
@@ -189,6 +192,7 @@ where
     }
 
     /// Gets the accelerometer reading in the Y direction.
+    /// If the accelerometer is off, this function will first turn it on.
     pub fn read_acc_y(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en == AccOff {
             self.enable_acc()?;
@@ -207,6 +211,7 @@ where
     }
 
     /// Gets the accelerometer reading in the Z direction.
+    /// If the accelerometer is off, this function will first turn it on.
     pub fn read_acc_z(&mut self) -> Result<f32, IcmError<E>> {
         if self.acc_en == AccOff {
             self.enable_acc()?;
@@ -225,6 +230,7 @@ where
     }
 
     /// Reads all three accelerometer values and returns them as an array.
+    /// If the accelerometer is off, this function will first turn it on.
     pub fn read_acc(&mut self) -> Result<[f32; 3], IcmError<E>> {
         let mut buf = [0.0, 0.0, 0.0];
         buf[0] = self.read_acc_x()?;
@@ -235,6 +241,7 @@ where
     }
 
     /// Gets the gyro reading in the X direction.
+    /// If the gyroscope is off, this function will first turn it on.
     pub fn read_gyro_x(&mut self) -> Result<f32, IcmError<E>> {
         if self.gyro_en == GyroOff {
             self.enable_gyro()?;
@@ -253,6 +260,7 @@ where
     }
 
     /// Gets the gyro reading in the Y direction.
+    /// If the gyroscope is off, this function will first turn it on.
     pub fn read_gyro_y(&mut self) -> Result<f32, IcmError<E>> {
         if self.gyro_en == GyroOff {
             self.enable_gyro()?;
@@ -271,6 +279,7 @@ where
     }
 
     /// Gets the gyro reading in the Z direction.
+    /// If the gyroscope is off, this function will first turn it on.
     pub fn read_gyro_z(&mut self) -> Result<f32, IcmError<E>> {
         if self.gyro_en == GyroOff {
             self.enable_gyro()?;
@@ -289,6 +298,7 @@ where
     }
 
     /// Reads all three gyro values and returns them as an array.
+    /// If the gyroscope is off, this function will first turn it on.
     pub fn read_gyro(&mut self) -> Result<[f32; 3], IcmError<E>> {
         let mut buf = [0.0; 3];
         buf[0] = self.read_gyro_x()?;
@@ -589,6 +599,218 @@ where
         Ok(())
     }
 
+    // ----------------- Temperature Sensor ----------------- //
+    /// Enable the temperature sensor
+    pub fn enable_temp(&mut self) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
+        let mut buf = [0];
+        self.bus.write_read(self.addr, &self.databuf[0..2], &mut buf[0..1])?;
+        self.databuf[1] = buf[0] | 0x08;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+        self.temp_en = TempOn;
+        Ok(())
+    }
+
+    /// Disable the temperature sensor
+    pub fn disable_temp(&mut self) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
+        let mut buf = [0];
+        self.bus.write_read(self.addr, &self.databuf[0..2], &mut buf[0..1])?;
+        self.databuf[1] = buf[0] & 0xF7;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+        self.temp_en = TempOff;
+        Ok(())
+    }
+
+    /// Read the temperature sensor.
+    ///
+    /// Returns the temperature in Celsius.
+    ///
+    /// TODO: More research on the room_temp_offset
+    pub fn read_temp(&mut self) -> Result<f32, IcmError<E>> {
+        if self.temp_en ==  TempOff {
+           self.enable_temp()?;
+        }
+
+        self.databuf[0] = RegistersBank0::TempOutH.get_addr(WRITE_REG);
+        self.databuf[1] = RegistersBank0::TempOutL.get_addr(WRITE_REG);
+
+        let mut buf = [0, 0];
+        self.bus.write_read(self.addr, &self.databuf[0..2], &mut buf[0..2])?;
+
+        let room_temp = 0;
+        let temp = (((((buf[0] as u16) << 8) | buf[1] as u16) - room_temp) as f32)/TEMP_SEN + 21.0;
+        Ok(temp)
+    }
+
+    // ----------------- Magnetometer ----------------- //
+    // This driver will access the magnetometer through the I2C master feature
+    // This is more for SPI
+    // - Enable the I2C master feature
+    // - May need to adjust the I2C master ODR if gyro and accelerometer are disabled
+    // - Set the I2C_MST_CTRL register for bus speed and stop between read
+    // - Set the I2C_MST_DELAY_CTRL register for SLV0
+    // - Set I2C_SLV0_ADDR to point to the magnetometer (0x0C I think) and write mode so I can configure it
+    // - Set I2C_SLV0_REG to point to the first register I want to read (CTRL2)
+    // - Set I2C_SLV0_DO to the desired control setting
+    // - Go to read mode now
+    // - Set I2C_SLV0_REG to HXL
+    // - Now EXT_SLV_DATA_00-06 will now be set with HXL-ST2. Need to read ST2 to trigger the data update in the axis registers
+
+    // For I2C:
+    // - Configure the Magnetometer using normal I2C methods. Then switch over.
+
+    /// Enable the magnetometer for use.
+    ///
+    /// Data rate specifies how often the magnetometer makes measurements.
+    pub fn enable_mag(&mut self, data_rate: MagRates) -> Result<(), IcmError<E>> {
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::UserCtrl.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+
+        self.databuf[1] = buf[0] | 0x20;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_3)?;
+
+        self.databuf[0] = RegistersBank3::I2cMstCtrl.get_addr(WRITE_REG);
+        self.databuf[1] = 0x17;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[0] = RegistersBank3::I2cMstDelayCtrl.get_addr(WRITE_REG);
+        self.databuf[1] = 0x01;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[2] = RegistersBank3::I2cSlv0Addr.get_addr(WRITE_REG);
+        self.databuf[3] = MAG_ADDR;
+        self.bus.write(self.addr, &self.databuf[2..4])?;
+
+        self.databuf[0] = RegistersBank3::I2cSlv0Reg.get_addr(WRITE_REG);
+        self.databuf[1] = 0x31;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[0] = RegistersBank3::I2cSlvDo.get_addr(WRITE_REG);
+        match data_rate {
+            MagRates::Mag10Hz => self.databuf[1] = 0x02,
+            MagRates::Mag20Hz => self.databuf[1] = 0x04,
+            MagRates::Mag50Hz => self.databuf[1] = 0x06,
+            MagRates::Mag100Hz => self.databuf[1] = 0x08,
+            MagRates::MagSingle => self.databuf[1] = 0x01,
+        }
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[0] = RegistersBank3::I2cSlv0Ctrl.get_addr(WRITE_REG);
+        self.databuf[1] = 0x89;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[3] = 1 << 7 | MAG_ADDR;
+        self.bus.write(self.addr, &self.databuf[2..4])?;
+
+        self.databuf[0] = RegistersBank3::I2cSlv0Reg.get_addr(WRITE_REG);
+        self.databuf[1] = 0x10;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.change_bank(REG_BANK_0)?;
+        self.mag_en = MagOn;
+        Ok(())
+    }
+
+    /// Disable the magnetometer.
+    pub fn disable_mag(&mut self) -> Result<(), IcmError<E>> {
+        unimplemented!();
+    }
+
+    /// Reads the magnetometer x axis.
+    /// If the magnetometer is off, this function will first turn it on with 50Hz sample rate.
+    fn read_mag_x(&mut self) -> Result<f32, IcmError<E>> {
+        if self.mag_en == MagOff {
+            self.enable_mag(MagRates::Mag50Hz)?;
+        }
+
+        let mut buf = [0, 0];
+
+        self.databuf[0] = RegistersBank0::ExtSlvSensData00.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        self.databuf[1] = RegistersBank0::ExtSlvSensData01.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[1..2], &mut buf[1..2])?;
+
+        let res = ((((buf[1] as i16) << 8) | (buf[0] as i16)) as f32) * MAG_SEN;
+        Ok(res)
+    }
+
+    /// Reads the magnetometer y axis.
+    /// If the magnetometer is off, this function will first turn it on with 50Hz sample rate.
+    fn read_mag_y(&mut self) -> Result<f32, IcmError<E>> {
+        if self.mag_en == MagOff {
+            self.enable_mag(MagRates::Mag50Hz)?;
+        }
+
+        let mut buf = [0, 0];
+
+        self.databuf[0] = RegistersBank0::ExtSlvSensData02.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        self.databuf[1] = RegistersBank0::ExtSlvSensData03.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[1..2], &mut buf[1..2])?;
+
+        let res = ((((buf[1] as i16) << 8) | (buf[0] as i16)) as f32) * MAG_SEN;
+        Ok(res)
+    }
+
+    /// Reads the magnetometer z axis.
+    /// If the magnetometer is off, this function will first turn it on with 50Hz sample rate.
+    fn read_mag_z(&mut self) -> Result<f32, IcmError<E>> {
+        if self.mag_en == MagOff {
+            self.enable_mag(MagRates::Mag50Hz)?;
+        }
+
+        let mut buf = [0, 0];
+
+        self.databuf[0] = RegistersBank0::ExtSlvSensData04.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        self.databuf[1] = RegistersBank0::ExtSlvSensData05.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[1..2], &mut buf[1..2])?;
+
+        let res = ((((buf[1] as i16) << 8) | (buf[0] as i16)) as f32) * MAG_SEN;
+        Ok(res)
+    }
+
+    /// Reads all axis of the magnetometer.
+    /// If the magnetometer is off, this function will first turn it on with 50Hz sample rate.
+    ///
+    /// Returns the values in the order: x, y, z
+    pub fn read_mag(&mut self) -> Result<[f32; 3], IcmError<E>> {
+        self.change_bank(REG_BANK_3)?;
+        self.databuf[0] = RegistersBank3::I2cSlv0Ctrl.get_addr(WRITE_REG);
+        self.databuf[1] = 0x89;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[0] = RegistersBank3::I2cSlv0Addr.get_addr(WRITE_REG);
+        self.databuf[1] = 1 << 7 | MAG_ADDR;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+
+        self.databuf[0] = RegistersBank3::I2cSlv0Reg.get_addr(WRITE_REG);
+        self.databuf[1] = 0x11;
+        self.bus.write(self.addr, &self.databuf[0..2])?;
+        self.change_bank(REG_BANK_0)?;
+
+        let mut res = [0.0, 0.0, 0.0];
+        res[0] = self.read_mag_x()?;
+        res[1] = self.read_mag_y()?;
+        res[2] = self.read_mag_z()?;
+
+        let mut buf = [0];
+        self.databuf[0] = RegistersBank0::ExtSlvSensData06.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        self.databuf[0] = RegistersBank0::ExtSlvSensData07.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        self.databuf[0] = RegistersBank0::ExtSlvSensData08.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        self.databuf[0] = RegistersBank0::ExtSlvSensData09.get_addr(WRITE_REG);
+        self.bus.write_read(self.addr, &self.databuf[0..1], &mut buf[0..1])?;
+        Ok(res)
+    }
+
+    // ----------------- Reset ----------------- //
     /// Resets the IMU the wakes it up from sleep mode.
     /// After the reset a 20ms sleep is suggested.
     ///

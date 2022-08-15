@@ -1,5 +1,9 @@
 # icm20948_driver change log
 
+## v X.Y.Z
+* Added temperature sensor support (TODO: Test more, and implement for SPI)
+* Added...
+
 ## v 0.2.0
 * Removed unnecessary cortex-m dependency.
 * Made defmt a feature rather than required.

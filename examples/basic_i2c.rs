@@ -38,10 +38,14 @@ fn main() -> ! {
         .I2C1
         .i2c((scl, sda), 300.kHz(), ccdr.peripheral.I2C1, &ccdr.clocks);
 
+
     defmt::info!("Setting up IMU...");
     let mut imu = defmt::unwrap!(imu_i2c::IcmImu::new(i2c, 0x68));
+    //defmt::unwrap!(imu.reset());
+    cortex_m::asm::delay(200_000_000);
     defmt::unwrap!(imu.set_acc_sen(icm20948::AccSensitivity::Sen2g));
     defmt::unwrap!(imu.set_gyro_sen(icm20948::GyroSensitivity::Sen250dps));
+    defmt::unwrap!(imu.enable_mag(icm20948::MagRates::Mag100Hz));
 
     // Configure heartbeat LED
     let gpioe = device.GPIOE.split(ccdr.peripheral.GPIOE);
@@ -69,11 +73,25 @@ fn main() -> ! {
                 gyr[2]
             ); // dps is degrees per second
 
+            let temp = defmt::unwrap!(imu.read_temp());
+            defmt::debug!(
+                "Temperature reading (C): {}",
+                temp,
+            );
+
+            let mag = defmt::unwrap!(imu.read_mag());
+            defmt::debug!(
+                "Mag readings (uT): X: {}, Y: {}, Z: {}",
+                mag[0],
+                mag[1],
+                mag[2]
+            );
+
             led.set_high();
-            delay.delay_ms(500_u16);
+            delay.delay_ms(50_u16);
 
             led.set_low();
-            delay.delay_ms(500_u16);
+            delay.delay_ms(50_u16);
         }
     }
 }

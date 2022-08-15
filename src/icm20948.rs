@@ -27,7 +27,12 @@ const GYRO_SEN_3: f32 = 16.4;
 const REG_BANK_0: u8 = 0x00;
 //const REG_BANK_1: u8 = 0x10;
 const REG_BANK_2: u8 = 0x20;
-//const REG_BANK_3: u8 = 0x30;
+const REG_BANK_3: u8 = 0x30;
+
+const TEMP_SEN: f32 = 333.87;
+
+const MAG_ADDR: u8 = 0x0C;
+const MAG_SEN: f32 = 0.15;
 
 /// States of the accelerometer: On or Off
 #[derive(PartialEq, Format)]
@@ -54,6 +59,29 @@ pub enum MagStates {
     MagOn,
     /// Off
     MagOff,
+}
+
+/// States of the temperature sensor: On or Off
+#[derive(PartialEq, Format)]
+pub enum TempStates {
+    /// On
+    TempOn,
+    /// Off
+    TempOff,
+}
+
+/// Magnetometer data rate options
+pub enum MagRates {
+    /// 10Hz measurement
+    Mag10Hz,
+    /// 20Hz measurement
+    Mag20Hz,
+    /// 50Hz measurement
+    Mag50Hz,
+    /// 100Hz measurement
+    Mag100Hz,
+    /// The magnetometer makes one measurement then goes to power down mode.
+    MagSingle,
 }
 
 /// Accelerometer sensitivity options as specified in the data sheet in g's.
@@ -136,6 +164,7 @@ pub enum IcmError<E> {
 
 enum RegistersBank0 {
     Wai,
+    UserCtrl,
     PwrMgmt1,
     PwrMgmt2,
     IntEnable1,
@@ -151,6 +180,18 @@ enum RegistersBank0 {
     GyroYOutL,
     GyroZOutH,
     GyroZOutL,
+    TempOutL,
+    TempOutH,
+    ExtSlvSensData00,
+    ExtSlvSensData01,
+    ExtSlvSensData02,
+    ExtSlvSensData03,
+    ExtSlvSensData04,
+    ExtSlvSensData05,
+    ExtSlvSensData06,
+    ExtSlvSensData07,
+    ExtSlvSensData08,
+    ExtSlvSensData09,
     RegBankSel,
 }
 /*
@@ -170,6 +211,15 @@ enum RegistersBank2 {
     AccelSmplrtDiv2,
     GyroSmplrtDiv,
     OdrAlignEn,
+}
+
+enum RegistersBank3 {
+    I2cMstCtrl,
+    I2cMstDelayCtrl,
+    I2cSlv0Addr,
+    I2cSlv0Reg,
+    I2cSlv0Ctrl,
+    I2cSlvDo,
 }
 
 impl<E> From<E> for IcmError<E> {
@@ -193,6 +243,7 @@ impl RegistersBank0 {
         if is_read {
             match *self {
                 RegistersBank0::Wai => 1 << 7 | 0x0,
+                RegistersBank0::UserCtrl => 1 << 7 | 0x03,
                 RegistersBank0::PwrMgmt1 => 1 << 7 | 0x06,
                 RegistersBank0::PwrMgmt2 => 1 << 7 | 0x07,
                 RegistersBank0::IntEnable1 => 1 << 7 | 0x11,
@@ -208,11 +259,24 @@ impl RegistersBank0 {
                 RegistersBank0::GyroYOutL => 1 << 7 | 0x36,
                 RegistersBank0::GyroZOutH => 1 << 7 | 0x37,
                 RegistersBank0::GyroZOutL => 1 << 7 | 0x38,
+                RegistersBank0::TempOutH => 1 << 7 | 0x39,
+                RegistersBank0::TempOutL => 1 << 7 | 0x3A,
+                RegistersBank0::ExtSlvSensData00 => 1 << 7 | 0x3B,
+                RegistersBank0::ExtSlvSensData01 => 1 << 7 | 0x3C,
+                RegistersBank0::ExtSlvSensData02 => 1 << 7 | 0x3D,
+                RegistersBank0::ExtSlvSensData03 => 1 << 7 | 0x3E,
+                RegistersBank0::ExtSlvSensData04 => 1 << 7 | 0x3F,
+                RegistersBank0::ExtSlvSensData05 => 1 << 7 | 0x40,
+                RegistersBank0::ExtSlvSensData06 => 1 << 7 | 0x41,
+                RegistersBank0::ExtSlvSensData07 => 1 << 7 | 0x42,
+                RegistersBank0::ExtSlvSensData08 => 1 << 7 | 0x43,
+                RegistersBank0::ExtSlvSensData09 => 1 << 7 | 0x44,
                 RegistersBank0::RegBankSel => 1 << 7 | 0x7F,
             }
         } else {
             match *self {
                 RegistersBank0::Wai => 0x0,
+                RegistersBank0::UserCtrl => 0x03,
                 RegistersBank0::PwrMgmt1 => 0x06,
                 RegistersBank0::PwrMgmt2 => 0x07,
                 RegistersBank0::IntEnable1 => 0x11,
@@ -228,6 +292,18 @@ impl RegistersBank0 {
                 RegistersBank0::GyroYOutL => 0x36,
                 RegistersBank0::GyroZOutH => 0x37,
                 RegistersBank0::GyroZOutL => 0x38,
+                RegistersBank0::TempOutH => 0x39,
+                RegistersBank0::TempOutL => 0x3A,
+                RegistersBank0::ExtSlvSensData00 => 0x3B,
+                RegistersBank0::ExtSlvSensData01 => 0x3C,
+                RegistersBank0::ExtSlvSensData02 => 0x3D,
+                RegistersBank0::ExtSlvSensData03 => 0x3E,
+                RegistersBank0::ExtSlvSensData04 => 0x3F,
+                RegistersBank0::ExtSlvSensData05 => 0x40,
+                RegistersBank0::ExtSlvSensData06 => 0x41,
+                RegistersBank0::ExtSlvSensData07 => 0x42,
+                RegistersBank0::ExtSlvSensData08 => 0x43,
+                RegistersBank0::ExtSlvSensData09 => 0x44,
                 RegistersBank0::RegBankSel => 0x7F,
             }
         }
@@ -253,6 +329,30 @@ impl RegistersBank2 {
                 RegistersBank2::AccelSmplrtDiv2 => 0x11,
                 RegistersBank2::AccelConfig => 0x14,
                 RegistersBank2::OdrAlignEn => 0x09,
+            }
+        }
+    }
+}
+
+impl RegistersBank3 {
+    fn get_addr(&self, is_read: bool) -> u8 {
+        if is_read {
+            match *self {
+                RegistersBank3::I2cMstCtrl => 1 << 7 | 0x01,
+                RegistersBank3::I2cMstDelayCtrl => 1 << 7 | 0x02,
+                RegistersBank3::I2cSlv0Addr => 1 << 7 | 0x03,
+                RegistersBank3::I2cSlv0Reg => 1 << 7 | 0x04,
+                RegistersBank3::I2cSlv0Ctrl => 1 << 7 | 0x05,
+                RegistersBank3::I2cSlvDo => 1 << 7 | 0x06,
+            }
+        } else {
+            match *self {
+                RegistersBank3::I2cMstCtrl => 0x01,
+                RegistersBank3::I2cMstDelayCtrl => 0x02,
+                RegistersBank3::I2cSlv0Addr => 0x03,
+                RegistersBank3::I2cSlv0Reg => 0x04,
+                RegistersBank3::I2cSlv0Ctrl => 0x05,
+                RegistersBank3::I2cSlvDo => 0x06,
             }
         }
     }
