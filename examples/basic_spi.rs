@@ -9,6 +9,7 @@ use cortex_m_rt::entry;
 use icm20948_driver::icm20948;
 use icm20948_driver::icm20948::spi as imu_spi;
 use stm32h7xx_hal::{pac, prelude::*, spi};
+use panic_probe as _;
 
 #[entry]
 fn main() -> ! {
