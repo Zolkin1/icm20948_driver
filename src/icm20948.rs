@@ -1,7 +1,8 @@
 // Copyright (c) 2022, Zachary D. Olkin.
 // This code is provided under the MIT license.
 
-use defmt::{Format, Formatter};
+#[cfg(feature = "defmt")]
+use defmt::{Formatter, Format};
 
 /// The i2c module holds all of the driver implementations when using an I2C bus to communicate with the device
 pub mod i2c;
@@ -30,7 +31,8 @@ const REG_BANK_2: u8 = 0x20;
 //const REG_BANK_3: u8 = 0x30;
 
 /// States of the accelerometer: On or Off
-#[derive(PartialEq, Format)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "defmt", derive(Format))]
 pub enum AccStates {
     /// On
     AccOn,
@@ -39,7 +41,8 @@ pub enum AccStates {
 }
 
 /// States of the gyro: On or Off
-#[derive(PartialEq, Format)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "defmt", derive(Format))]
 pub enum GyroStates {
     /// On
     GyroOn,
@@ -48,7 +51,8 @@ pub enum GyroStates {
 }
 
 /// States of the magnetometer: On or Off
-#[derive(PartialEq, Format)]
+#[derive(PartialEq)]
+#[cfg_attr(feature = "defmt", derive(Format))]
 pub enum MagStates {
     /// On
     MagOn,

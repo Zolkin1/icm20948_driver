@@ -16,6 +16,8 @@ use crate::icm20948::{
     GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, READ_REG, WRITE_REG,
 };
 use crate::icm20948::{REG_BANK_0, REG_BANK_2};
+
+#[cfg(feature = "defmt")]
 use defmt::{Format, Formatter};
 
 use embedded_hal::{self as hal, blocking::spi};
@@ -129,6 +131,7 @@ where
         self.cs.set_high().ok();
 
         self.acc_en = AccOn;
+        #[cfg(feature = "defmt")]
         defmt::trace!("Accelerometer: On");
 
         Ok(())
@@ -147,6 +150,7 @@ where
         self.cs.set_high().ok();
 
         self.acc_en = AccOff;
+        #[cfg(feature = "defmt")]
         defmt::trace!("Accelerometer: Off");
 
         Ok(())
@@ -166,6 +170,7 @@ where
         self.cs.set_high().ok();
 
         self.gyro_en = GyroOn;
+        #[cfg(feature = "defmt")]
         defmt::trace!("Gyro: On");
 
         Ok(())
@@ -184,6 +189,7 @@ where
         self.cs.set_high().ok();
 
         self.gyro_en = GyroOff;
+        #[cfg(feature = "defmt")]
         defmt::trace!("Gyro: Off");
 
         Ok(())
@@ -709,6 +715,7 @@ where
     }
 }
 
+#[cfg(feature = "defmt")]
 impl<BUS, PIN> Format for IcmImu<BUS, PIN> {
     fn format(&self, fmt: Formatter) {
         defmt::write!(fmt, "ICM-20948 IMU")
