@@ -32,7 +32,6 @@
 #![no_main]
 
 use defmt_rtt as _; // global logger
-use panic_probe as _;
 
 /// Main module that holds the SPI and I2C sub modules.
 /// Also holds many enums and constants shared between SPI and I2C
