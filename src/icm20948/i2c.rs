@@ -16,6 +16,8 @@ use crate::icm20948::{
     GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, WRITE_REG,
 };
 use crate::icm20948::{REG_BANK_0, REG_BANK_2};
+
+#[cfg(feature = "defmt")]
 use defmt::{Format, Formatter};
 
 use embedded_hal::blocking::i2c;
@@ -627,6 +629,7 @@ where
     }
 }
 
+#[cfg(feature = "defmt")]
 impl<BUS> Format for IcmImu<BUS> {
     fn format(&self, fmt: Formatter) {
         defmt::write!(fmt, "ICM-20948 IMU")
