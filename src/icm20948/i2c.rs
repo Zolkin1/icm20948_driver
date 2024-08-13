@@ -693,6 +693,25 @@ where
 
         Ok(())
     }
+
+    /// dump all registes in given bank
+    pub fn dump_bank<BANK: Bank>(&mut self) -> Result<heapless::Vec<(u8, u8), 32>, IcmError<E>> {
+        self.change_bank(BANK::id())?;
+
+        let mut result = heapless::Vec::<(u8, u8), 32>::new();
+
+        for addr in BANK::iter() {
+            self.databuf[0] = addr.read();
+            let mut rsp = [0u8; 1];
+            self.bus
+                .write_read(self.addr, &self.databuf[0..1], &mut rsp)?;
+            result.push((addr.into(), rsp[0])).unwrap();
+        }
+
+        self.change_bank(0)?;
+
+        Ok(result)
+    }
 }
 
 impl<BUS> Format for IcmImu<BUS> {
