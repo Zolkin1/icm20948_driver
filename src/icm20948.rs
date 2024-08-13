@@ -24,11 +24,6 @@ const GYRO_SEN_1: f32 = 65.5;
 const GYRO_SEN_2: f32 = 32.8;
 const GYRO_SEN_3: f32 = 16.4;
 
-const REG_BANK_0: u8 = 0x00;
-//const REG_BANK_1: u8 = 0x10;
-const REG_BANK_2: u8 = 0x20;
-//const REG_BANK_3: u8 = 0x30;
-
 /// States of the accelerometer: On or Off
 #[derive(PartialEq, Format)]
 pub enum AccStates {
@@ -134,24 +129,31 @@ pub enum IcmError<E> {
     InvalidInput,
 }
 
-enum RegistersBank0 {
-    Wai,
-    PwrMgmt1,
-    PwrMgmt2,
-    IntEnable1,
-    AccelXOutH,
-    AccelXOutL,
-    AccelYOutH,
-    AccelYOutL,
-    AccelZOutH,
-    AccelZOutL,
-    GyroXOutH,
-    GyroXOutL,
-    GyroYOutH,
-    GyroYOutL,
-    GyroZOutH,
-    GyroZOutL,
-    RegBankSel,
+/// register bank #0
+#[allow(missing_docs)]
+#[derive(Clone, Copy, strum::EnumIter)]
+#[repr(u8)]
+pub enum RegistersBank0 {
+    Wai = 0x00,
+    PwrMgmt1 = 0x06,
+    PwrMgmt2 = 0x07,
+    IntPinCfg = 0x0F,
+    IntEnable = 0x10,
+    IntEnable1 = 0x11,
+    IntStatus = 0x19,
+    AccelXOutH = 0x2D,
+    AccelXOutL = 0x2E,
+    AccelYOutH = 0x2F,
+    AccelYOutL = 0x30,
+    AccelZOutH = 0x31,
+    AccelZOutL = 0x32,
+    GyroXOutH = 0x33,
+    GyroXOutL = 0x34,
+    GyroYOutH = 0x35,
+    GyroYOutL = 0x36,
+    GyroZOutH = 0x37,
+    GyroZOutL = 0x38,
+    RegBankSel = 0x7F,
 }
 /*
 enum RegistersBank1 {
@@ -163,13 +165,19 @@ enum RegistersBank1 {
     ZAOffsL,
 }*/
 
-enum RegistersBank2 {
-    GyroConfig1,
-    AccelConfig,
-    AccelSmplrtDiv1,
-    AccelSmplrtDiv2,
-    GyroSmplrtDiv,
-    OdrAlignEn,
+/// register bank #2
+#[allow(missing_docs)]
+#[derive(Clone, Copy, strum::EnumIter)]
+#[repr(u8)]
+pub enum RegistersBank2 {
+    GyroSmplrtDiv = 0x00,
+    GyroConfig1 = 0x01,
+    OdrAlignEn = 0x09,
+    AccelSmplrtDiv1 = 0x10,
+    AccelSmplrtDiv2 = 0x11,
+    AccelIntelCtrl = 0x12,
+    AccelWomThr = 0x13,
+    AccelConfig = 0x14,
 }
 
 impl<E> From<E> for IcmError<E> {
@@ -188,75 +196,91 @@ impl<E: Format> Format for IcmError<E> {
     }
 }
 
+/// Bank trait
+pub trait Bank: Into<u8> + Copy + strum::IntoEnumIterator {
+    /// get bank id
+    fn id() -> u8;
+
+    /// generate address suitable for read/write
+    fn get_addr(&self, is_read: bool) -> u8 {
+        if is_read {
+            self.read()
+        } else {
+            self.write()
+        }
+    }
+
+    /// generate address suitable for write
+    fn write(self) -> u8 {
+        self.into()
+    }
+
+    /// generate address suitable for read
+    fn read(self) -> u8 {
+        self.into() | 1 << 7
+    }
+}
+
+impl From<RegistersBank0> for u8 {
+    fn from(value: RegistersBank0) -> Self {
+        value as u8
+    }
+}
+
+impl Bank for RegistersBank0 {
+    fn id() -> u8 {
+        0
+    }
+}
+
+impl From<RegistersBank2> for u8 {
+    fn from(value: RegistersBank2) -> Self {
+        value as u8
+    }
+}
+
+impl Bank for RegistersBank2 {
+    fn id() -> u8 {
+        2
+    }
+}
+/*
 impl RegistersBank0 {
     fn get_addr(&self, is_read: bool) -> u8 {
         if is_read {
-            match *self {
-                RegistersBank0::Wai => 1 << 7 | 0x0,
-                RegistersBank0::PwrMgmt1 => 1 << 7 | 0x06,
-                RegistersBank0::PwrMgmt2 => 1 << 7 | 0x07,
-                RegistersBank0::IntEnable1 => 1 << 7 | 0x11,
-                RegistersBank0::AccelXOutH => 1 << 7 | 0x2D,
-                RegistersBank0::AccelXOutL => 1 << 7 | 0x2E,
-                RegistersBank0::AccelYOutH => 1 << 7 | 0x2F,
-                RegistersBank0::AccelYOutL => 1 << 7 | 0x30,
-                RegistersBank0::AccelZOutH => 1 << 7 | 0x31,
-                RegistersBank0::AccelZOutL => 1 << 7 | 0x32,
-                RegistersBank0::GyroXOutH => 1 << 7 | 0x33,
-                RegistersBank0::GyroXOutL => 1 << 7 | 0x34,
-                RegistersBank0::GyroYOutH => 1 << 7 | 0x35,
-                RegistersBank0::GyroYOutL => 1 << 7 | 0x36,
-                RegistersBank0::GyroZOutH => 1 << 7 | 0x37,
-                RegistersBank0::GyroZOutL => 1 << 7 | 0x38,
-                RegistersBank0::RegBankSel => 1 << 7 | 0x7F,
-            }
+            *self as u8 | 1 << 7
         } else {
-            match *self {
-                RegistersBank0::Wai => 0x0,
-                RegistersBank0::PwrMgmt1 => 0x06,
-                RegistersBank0::PwrMgmt2 => 0x07,
-                RegistersBank0::IntEnable1 => 0x11,
-                RegistersBank0::AccelXOutH => 0x2D,
-                RegistersBank0::AccelXOutL => 0x2E,
-                RegistersBank0::AccelYOutH => 0x2F,
-                RegistersBank0::AccelYOutL => 0x30,
-                RegistersBank0::AccelZOutH => 0x31,
-                RegistersBank0::AccelZOutL => 0x32,
-                RegistersBank0::GyroXOutH => 0x33,
-                RegistersBank0::GyroXOutL => 0x34,
-                RegistersBank0::GyroYOutH => 0x35,
-                RegistersBank0::GyroYOutL => 0x36,
-                RegistersBank0::GyroZOutH => 0x37,
-                RegistersBank0::GyroZOutL => 0x38,
-                RegistersBank0::RegBankSel => 0x7F,
-            }
+            *self as u8
         }
+    }
+
+    fn write(self) -> u8 {
+        self as u8
+    }
+
+    fn read(self) -> u8 {
+        self as u8 | 1 << 7
     }
 }
 
 impl RegistersBank2 {
     fn get_addr(&self, is_read: bool) -> u8 {
         if is_read {
-            match *self {
-                RegistersBank2::GyroSmplrtDiv => 1 << 7 | 0x00,
-                RegistersBank2::GyroConfig1 => 1 << 7 | 0x01,
-                RegistersBank2::AccelSmplrtDiv1 => 1 << 7 | 0x10,
-                RegistersBank2::AccelSmplrtDiv2 => 1 << 7 | 0x11,
-                RegistersBank2::AccelConfig => 1 << 7 | 0x14,
-                RegistersBank2::OdrAlignEn => 1 << 7 | 0x09,
-            }
+            *self as u8 | 1 << 7
         } else {
-            match *self {
-                RegistersBank2::GyroSmplrtDiv => 0x00,
-                RegistersBank2::GyroConfig1 => 0x01,
-                RegistersBank2::AccelSmplrtDiv1 => 0x10,
-                RegistersBank2::AccelSmplrtDiv2 => 0x11,
-                RegistersBank2::AccelConfig => 0x14,
-                RegistersBank2::OdrAlignEn => 0x09,
-            }
+            *self as u8
         }
     }
+
+    fn write(self) -> u8 {
+        self as u8
+    }
+
+    fn read(self) -> u8 {
+        self as u8 | 1 << 7
+    }
 }
+*/
 
 /*
 impl RegistersBank1 {

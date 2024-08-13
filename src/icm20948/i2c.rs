@@ -15,10 +15,11 @@ use crate::icm20948::{
     ACCEL_SEN_0, ACCEL_SEN_1, ACCEL_SEN_2, ACCEL_SEN_3, GYRO_SEN_0, GYRO_SEN_1, GYRO_SEN_2,
     GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, WRITE_REG,
 };
-use crate::icm20948::{REG_BANK_0, REG_BANK_2};
 use defmt::{Format, Formatter};
 
 use embedded_hal::i2c::I2c;
+
+use super::Bank;
 
 /// The ICM IMU struct is the base of the driver. Instantiate this struct in your application code then use
 /// it to interact with the IMU.
@@ -302,7 +303,7 @@ where
     ///
     /// `gyro_sen` specifies the desired sensitivity. See the data sheet for more details.
     pub fn set_gyro_sen(&mut self, gyro_sen: GyroSensitivity) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         let mut buf = [0];
 
@@ -319,7 +320,7 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         match gyro_sen {
             GyroSensitivity::Sen250dps => self.gyro_sen = GYRO_SEN_0,
@@ -335,7 +336,7 @@ where
     ///
     /// `acc_sen` specifies the desired sensitivity. See the data sheet for more details.
     pub fn set_acc_sen(&mut self, acc_sen: AccSensitivity) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
         let mut buf = [0];
 
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
@@ -352,7 +353,7 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         match acc_sen {
             AccSensitivity::Sen2g => self.accel_sen = ACCEL_SEN_0,
@@ -367,7 +368,7 @@ where
     ///
     /// `bw` is the 3DB bandwidth of the LPF. See the data sheet for more details.
     pub fn config_acc_lpf(&mut self, bw: AccLPF) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         let mut buf = [0];
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
@@ -391,7 +392,7 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
         Ok(())
     }
 
@@ -399,7 +400,7 @@ where
     ///
     /// `bw` is the 3DB bandwidth of the LPF. See the data sheet for more details.
     pub fn config_gyro_lpf(&mut self, bw: GyroLPF) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         let mut buf = [0];
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
@@ -424,13 +425,13 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
         Ok(())
     }
 
     /// Disables the low pass filter for the accelerometer.
     pub fn disable_acc_lpf(&mut self) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         let mut buf = [0];
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
@@ -442,14 +443,14 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         Ok(())
     }
 
     /// Disables the low pass filter for the gyro.
     pub fn disable_gyro_lpf(&mut self) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         let mut buf = [0];
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
@@ -461,7 +462,7 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         Ok(())
     }
@@ -478,7 +479,7 @@ where
         if rate < 1_125 {
             let div = 1_125 / (rate) - 1;
 
-            self.change_bank(REG_BANK_2)?;
+            self.change_bank(2)?;
 
             self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
             self.databuf[1] = 0x01;
@@ -492,7 +493,7 @@ where
 
             self.bus.write(self.addr, &self.databuf[0..4])?;
 
-            self.change_bank(REG_BANK_0)?;
+            self.change_bank(0)?;
 
             Ok(())
         } else {
@@ -513,7 +514,7 @@ where
         if rate > 4 && rate < 1125 {
             let div: u8 = (1_125 / (rate) - 1) as u8;
 
-            self.change_bank(REG_BANK_2)?;
+            self.change_bank(2)?;
 
             self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
             self.databuf[1] = 0x01;
@@ -525,7 +526,7 @@ where
 
             self.bus.write(self.addr, &self.databuf[0..2])?;
 
-            self.change_bank(REG_BANK_0)?;
+            self.change_bank(0)?;
 
             Ok(())
         } else {
@@ -542,7 +543,7 @@ where
         if div < 4096 {
             div = div - 1;
 
-            self.change_bank(REG_BANK_2)?;
+            self.change_bank(2)?;
 
             self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
             self.databuf[1] = 0x01;
@@ -556,7 +557,7 @@ where
 
             self.bus.write(self.addr, &self.databuf[0..4])?;
 
-            self.change_bank(REG_BANK_0)?;
+            self.change_bank(0)?;
 
             Ok(())
         } else {
@@ -572,7 +573,7 @@ where
     pub fn config_gyro_rate_div(&mut self, mut div: u8) -> Result<(), IcmError<E>> {
         div = div - 1;
 
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
@@ -584,7 +585,7 @@ where
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         Ok(())
     }
@@ -619,7 +620,7 @@ where
 
     fn change_bank(&mut self, bank: u8) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::RegBankSel.get_addr(WRITE_REG);
-        self.databuf[1] = bank;
+        self.databuf[1] = (bank & 0x03) << 4;
 
         self.bus.write(self.addr, &self.databuf[0..2])?;
 
