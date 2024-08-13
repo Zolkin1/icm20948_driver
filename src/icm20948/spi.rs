@@ -22,8 +22,10 @@ use embedded_hal as hal;
 
 /// The ICM IMU struct is the base of the driver. Instantiate this struct in your application code then use
 /// it to interact with the IMU.
-pub struct IcmImu<DEV> {
+pub struct IcmImu<DEV, DELAY> {
     dev: DEV,
+    _delay: DELAY,
+
     acc_en: AccStates,
     gyro_en: GyroStates,
     mag_en: MagStates,
@@ -36,22 +38,26 @@ pub struct IcmImu<DEV> {
     int_enabled: bool,
 }
 
-impl<DEV, E> IcmImu<DEV>
+impl<DEV, E, DELAY> IcmImu<DEV, DELAY>
 where
     DEV: hal::spi::SpiDevice<u8, Error = E>,
+    DELAY: hal::delay::DelayNs,
 {
     /// Create and initialize a new IMU driver.
     ///
     /// The SPI device is given as `dev`
     ///
     /// The chip select pin is specified through `cs`
-    pub fn new(mut dev: DEV) -> Result<Self, IcmError<E>> {
+    pub fn new(mut dev: DEV, mut delay: DELAY) -> Result<Self, IcmError<E>> {
         let mut buf = [RegistersBank0::PwrMgmt1.get_addr(WRITE_REG), 0x01];
 
         dev.transfer_in_place(&mut buf)?;
 
+        delay.delay_ms(50);
+
         Ok(IcmImu {
             dev,
+            _delay: delay,
             acc_en: AccOn,
             gyro_en: GyroOn,
             mag_en: MagOff,
@@ -613,7 +619,7 @@ where
     }
 }
 
-impl<DEV> Format for IcmImu<DEV> {
+impl<DEV, DELAY> Format for IcmImu<DEV, DELAY> {
     fn format(&self, fmt: Formatter) {
         defmt::write!(fmt, "ICM-20948 IMU")
     }
