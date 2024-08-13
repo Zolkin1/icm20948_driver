@@ -18,7 +18,7 @@ use crate::icm20948::{
 use crate::icm20948::{REG_BANK_0, REG_BANK_2};
 use defmt::{Format, Formatter};
 
-use embedded_hal::blocking::i2c;
+use embedded_hal::i2c::I2c;
 
 /// The ICM IMU struct is the base of the driver. Instantiate this struct in your application code then use
 /// it to interact with the IMU.
@@ -40,7 +40,7 @@ pub struct IcmImu<BUS> {
 
 impl<BUS, E> IcmImu<BUS>
 where
-    BUS: i2c::WriteRead<u8, Error = E> + i2c::Write<u8, Error = E>,
+    BUS: I2c<Error = E>,
 {
     /// Create and initialize a new IMU driver.
     ///
