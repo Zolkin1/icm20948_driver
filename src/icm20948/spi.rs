@@ -1,6 +1,8 @@
 // Copyright (c) 2022, Zachary D. Olkin.
 // This code is provided under the MIT license.
 
+use core::convert::TryInto;
+
 use crate::icm20948::AccLPF;
 use crate::icm20948::AccSensitivity;
 use crate::icm20948::AccStates::{self, *};
@@ -13,12 +15,14 @@ use crate::icm20948::RegistersBank0;
 use crate::icm20948::RegistersBank2;
 use crate::icm20948::{
     ACCEL_SEN_0, ACCEL_SEN_1, ACCEL_SEN_2, ACCEL_SEN_3, GYRO_SEN_0, GYRO_SEN_1, GYRO_SEN_2,
-    GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, READ_REG, WRITE_REG,
+    GYRO_SEN_3, READ_REG, WRITE_REG,
 };
 use defmt::{Format, Formatter};
 
 use embedded_hal as hal;
 
+use super::bits;
+use super::AccWakeMode;
 use super::Bank;
 
 /// The ICM IMU struct is the base of the driver. Instantiate this struct in your application code then use
@@ -64,7 +68,7 @@ where
             mag_en: MagOff,
             accel_sen: ACCEL_SEN_0,
             gyro_sen: GYRO_SEN_0,
-            int_enabled: INT_NOT_ENABLED,
+            int_enabled: false,
             databuf: [0; 5],
         })
     }
@@ -81,28 +85,64 @@ where
     }
 
     /// Enable the raw data ready interrupt.
-    pub fn enable_int(&mut self) -> Result<(), IcmError<E>> {
+    pub fn enable_raw_data_ready_int(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
         self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.int_enabled = INT_ENABLED;
+        self.int_enabled = true;
         Ok(())
     }
 
     /// Disable the raw data ready interrupt.
-    pub fn disable_int(&mut self) -> Result<(), IcmError<E>> {
+    pub fn disable_raw_data_ready_int(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
         self.databuf[1] = 0x00;
         self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.int_enabled = INT_NOT_ENABLED;
+        self.int_enabled = false;
         Ok(())
     }
 
     /// Checks if the interrupt is enabled. Returns true if enabled, false if otherwise.
-    pub fn int_on(&self) -> bool {
-        self.int_enabled == INT_ENABLED
+    pub fn raw_data_ready_int_on(&self) -> bool {
+        self.int_enabled
+    }
+
+    /// modify INT_ENABLE register settings
+    pub fn modify_interrupts<F: FnOnce(&mut bits::IntEnable)>(
+        &mut self,
+        f: F,
+    ) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::IntEnable.read();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        let mut int = bits::IntEnable(self.databuf[1]);
+        f(&mut int);
+        self.databuf[1] = int.0;
+
+        self.databuf[0] = RegistersBank0::IntEnable.get_addr(WRITE_REG);
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        Ok(())
+    }
+
+    /// modify INT_PIN_CFG register settings
+    pub fn modify_int_pin_cfg<F: FnOnce(&mut bits::IntPinCfg)>(
+        &mut self,
+        f: F,
+    ) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::IntPinCfg.read();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        let mut int = bits::IntPinCfg(self.databuf[1]);
+        f(&mut int);
+        self.databuf[1] = int.0;
+
+        self.databuf[0] = RegistersBank0::IntPinCfg.get_addr(WRITE_REG);
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        Ok(())
     }
 
     /// Enables the accelerometer.
@@ -289,6 +329,27 @@ where
         res[2] = self.read_gyro_z()?;
 
         Ok(res)
+    }
+
+    /// set wake-on-motion detection mode
+    pub fn set_acc_wake_mode(&mut self, mode: AccWakeMode) -> Result<(), IcmError<E>> {
+        self.change_bank(2)?;
+        self.databuf[0] = RegistersBank2::AccelIntelCtrl.write();
+        self.databuf[1] = mode as u8;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+        self.change_bank(0)?;
+        Ok(())
+    }
+
+    /// set wake-on-motion acceleration threshold
+    /// `threshold` specifies acceleration threshold in mg (1/1000 g)
+    pub fn set_acc_wake_threshold(&mut self, threshold: u16) -> Result<(), IcmError<E>> {
+        self.change_bank(2)?;
+        self.databuf[0] = RegistersBank2::AccelWomThr.write();
+        self.databuf[1] = (threshold.clamp(0, 1020) / 4).try_into().unwrap();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+        self.change_bank(0)?;
+        Ok(())
     }
 
     /// Sets the sensitivity of the accelerometer.

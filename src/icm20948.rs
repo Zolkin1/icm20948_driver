@@ -8,11 +8,11 @@ pub mod i2c;
 /// The SPI module holds all of the driver implementations when using an SPI bus to communicate with the device
 pub mod spi;
 
+/// bitfield definitions
+pub mod bits;
+
 const READ_REG: bool = true;
 const WRITE_REG: bool = false;
-
-const INT_ENABLED: bool = true;
-const INT_NOT_ENABLED: bool = false;
 
 const ACCEL_SEN_0: u16 = 16_384;
 const ACCEL_SEN_1: u16 = 8_192;
@@ -113,6 +113,17 @@ pub enum GyroLPF {
     BW6,
     /// 361.4Hz 3DB BW
     BW361,
+}
+
+/// accelerometer wake on motion mode
+#[repr(u8)]
+pub enum AccWakeMode {
+    /// WoM logic disabled
+    Off = 0b00,
+    /// WoM logic enabled, current sample is compared to first sample taken
+    CompareToInitialSample = 0b10,
+    /// WoM logic enabled, current sample is compared to previous sample
+    CompareToPreviousSample = 0b11,
 }
 
 /// The possible errors that the driver can return.
