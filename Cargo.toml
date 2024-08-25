@@ -14,10 +14,13 @@ default = ["defmt"]
 defmt = []
 
 [dependencies]
-embedded-hal = "0.2.7"
+embedded-hal = "1.0"
 defmt = "0.3.0"
 defmt-rtt = "0.3.0"
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+bitfield = "0.16"
+strum = { version = "0.26", default-features = false, features = ["derive"] }
+heapless = "0.8"
 
 [dev-dependencies]
 cortex-m-rtic = "1.1"

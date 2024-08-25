@@ -1,6 +1,8 @@
 // Copyright (c) 2022, Zachary D. Olkin.
 // This code is provided under the MIT license.
 
+use core::convert::TryInto;
+
 use crate::icm20948::AccLPF;
 use crate::icm20948::AccSensitivity;
 use crate::icm20948::AccStates::{self, *};
@@ -13,17 +15,22 @@ use crate::icm20948::RegistersBank0;
 use crate::icm20948::RegistersBank2;
 use crate::icm20948::{
     ACCEL_SEN_0, ACCEL_SEN_1, ACCEL_SEN_2, ACCEL_SEN_3, GYRO_SEN_0, GYRO_SEN_1, GYRO_SEN_2,
-    GYRO_SEN_3, INT_ENABLED, INT_NOT_ENABLED, READ_REG, WRITE_REG,
+    GYRO_SEN_3, READ_REG, WRITE_REG,
 };
-use crate::icm20948::{REG_BANK_0, REG_BANK_2};
 use defmt::{Format, Formatter};
 
-use embedded_hal::{self as hal, blocking::spi};
+use embedded_hal as hal;
+
+use super::bits;
+use super::AccWakeMode;
+use super::Bank;
 
 /// The ICM IMU struct is the base of the driver. Instantiate this struct in your application code then use
 /// it to interact with the IMU.
-pub struct IcmImu<BUS, PIN> {
-    bus: BUS,
+pub struct IcmImu<DEV, DELAY> {
+    dev: DEV,
+    _delay: DELAY,
+
     acc_en: AccStates,
     gyro_en: GyroStates,
     mag_en: MagStates,
@@ -34,36 +41,34 @@ pub struct IcmImu<BUS, PIN> {
     gyro_sen: f32,
 
     int_enabled: bool,
-
-    cs: PIN,
 }
 
-impl<BUS, E, PIN> IcmImu<BUS, PIN>
+impl<DEV, E, DELAY> IcmImu<DEV, DELAY>
 where
-    BUS: spi::Transfer<u8, Error = E>,
-    PIN: hal::digital::v2::OutputPin,
+    DEV: hal::spi::SpiDevice<u8, Error = E>,
+    DELAY: hal::delay::DelayNs,
 {
     /// Create and initialize a new IMU driver.
     ///
-    /// The SPI bus is given as `bus`
+    /// The SPI device is given as `dev`
     ///
     /// The chip select pin is specified through `cs`
-    pub fn new(mut bus: BUS, mut cs: PIN) -> Result<Self, IcmError<E>> {
+    pub fn new(mut dev: DEV, mut delay: DELAY) -> Result<Self, IcmError<E>> {
         let mut buf = [RegistersBank0::PwrMgmt1.get_addr(WRITE_REG), 0x01];
 
-        cs.set_low().ok();
-        bus.transfer(&mut buf)?;
-        cs.set_high().ok();
+        dev.transfer_in_place(&mut buf)?;
+
+        delay.delay_ms(50);
 
         Ok(IcmImu {
-            bus,
+            dev,
+            _delay: delay,
             acc_en: AccOn,
             gyro_en: GyroOn,
             mag_en: MagOff,
-            cs,
             accel_sen: ACCEL_SEN_0,
             gyro_sen: GYRO_SEN_0,
-            int_enabled: INT_NOT_ENABLED,
+            int_enabled: false,
             databuf: [0; 5],
         })
     }
@@ -72,61 +77,81 @@ where
     ///
     /// Useful for testing that the IMU is properly connected. See the data sheet for the expected return value.
     pub fn wai(&mut self) -> Result<u8, IcmError<E>> {
-        self.cs.set_low().ok();
-
         self.databuf[0] = RegistersBank0::Wai.get_addr(READ_REG);
         self.databuf[1] = 0;
-        self.bus.transfer(&mut self.databuf[0..2])?;
-
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         Ok(self.databuf[1])
     }
 
     /// Enable the raw data ready interrupt.
-    pub fn enable_int(&mut self) -> Result<(), IcmError<E>> {
-        self.cs.set_low().ok();
-
+    pub fn enable_raw_data_ready_int(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
-        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.cs.set_high().ok();
-
-        self.int_enabled = INT_ENABLED;
+        self.int_enabled = true;
         Ok(())
     }
 
     /// Disable the raw data ready interrupt.
-    pub fn disable_int(&mut self) -> Result<(), IcmError<E>> {
-        self.cs.set_low().ok();
-
+    pub fn disable_raw_data_ready_int(&mut self) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::IntEnable1.get_addr(WRITE_REG);
         self.databuf[1] = 0x00;
-        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.cs.set_high().ok();
-
-        self.int_enabled = INT_NOT_ENABLED;
+        self.int_enabled = false;
         Ok(())
     }
 
     /// Checks if the interrupt is enabled. Returns true if enabled, false if otherwise.
-    pub fn int_on(&self) -> bool {
-        self.int_enabled == INT_ENABLED
+    pub fn raw_data_ready_int_on(&self) -> bool {
+        self.int_enabled
+    }
+
+    /// modify INT_ENABLE register settings
+    pub fn modify_interrupts<F: FnOnce(&mut bits::IntEnable)>(
+        &mut self,
+        f: F,
+    ) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::IntEnable.read();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        let mut int = bits::IntEnable(self.databuf[1]);
+        f(&mut int);
+        self.databuf[1] = int.0;
+
+        self.databuf[0] = RegistersBank0::IntEnable.get_addr(WRITE_REG);
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        Ok(())
+    }
+
+    /// modify INT_PIN_CFG register settings
+    pub fn modify_int_pin_cfg<F: FnOnce(&mut bits::IntPinCfg)>(
+        &mut self,
+        f: F,
+    ) -> Result<(), IcmError<E>> {
+        self.databuf[0] = RegistersBank0::IntPinCfg.read();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        let mut int = bits::IntPinCfg(self.databuf[1]);
+        f(&mut int);
+        self.databuf[1] = int.0;
+
+        self.databuf[0] = RegistersBank0::IntPinCfg.get_addr(WRITE_REG);
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+
+        Ok(())
     }
 
     /// Enables the accelerometer.
     pub fn enable_acc(&mut self) -> Result<(), IcmError<E>> {
-        self.cs.set_low().ok();
-
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(READ_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
         self.databuf[1] = self.databuf[0] & 0x07;
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
-
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.acc_en = AccOn;
         defmt::trace!("Accelerometer: On");
@@ -136,15 +161,11 @@ where
 
     /// Disables the accelerometer.
     pub fn disable_acc(&mut self) -> Result<(), IcmError<E>> {
-        self.cs.set_low().ok();
-
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(READ_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
         self.databuf[1] = self.databuf[0] | 0x38;
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
-
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.acc_en = AccOff;
         defmt::trace!("Accelerometer: Off");
@@ -154,16 +175,12 @@ where
 
     /// Enables the gyro.
     pub fn enable_gyro(&mut self) -> Result<(), IcmError<E>> {
-        self.cs.set_low().ok();
-
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(READ_REG);
         self.databuf[1] = 0x00;
-        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
         self.databuf[1] = self.databuf[0] & 0x38;
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
-
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.gyro_en = GyroOn;
         defmt::trace!("Gyro: On");
@@ -173,15 +190,11 @@ where
 
     /// Disables the gyro.
     pub fn disable_gyro(&mut self) -> Result<(), IcmError<E>> {
-        self.cs.set_low().ok();
-
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(READ_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
         self.databuf[1] = self.databuf[0] | 0x07;
         self.databuf[0] = RegistersBank0::PwrMgmt2.get_addr(WRITE_REG);
-        self.bus.transfer(&mut self.databuf[0..2])?;
-
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.gyro_en = GyroOff;
         defmt::trace!("Gyro: Off");
@@ -214,9 +227,7 @@ where
         self.databuf[0] = RegistersBank0::AccelXOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::AccelXOutL.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..3])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..3])?;
 
         Ok(
             (((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32
@@ -233,9 +244,7 @@ where
         self.databuf[0] = RegistersBank0::AccelYOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::AccelYOutL.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..3])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..3])?;
 
         Ok(
             (((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32
@@ -252,9 +261,7 @@ where
         self.databuf[0] = RegistersBank0::AccelZOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::AccelZOutL.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..3])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..3])?;
 
         Ok(
             (((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32
@@ -281,9 +288,7 @@ where
         self.databuf[0] = RegistersBank0::GyroXOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::GyroXOutL.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..3])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..3])?;
 
         Ok((((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32 / self.gyro_sen)
     }
@@ -297,9 +302,7 @@ where
         self.databuf[0] = RegistersBank0::GyroYOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::GyroYOutL.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..3])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..3])?;
 
         Ok((((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32 / self.gyro_sen)
     }
@@ -313,9 +316,7 @@ where
         self.databuf[0] = RegistersBank0::GyroZOutH.get_addr(READ_REG);
         self.databuf[1] = RegistersBank0::GyroZOutL.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..3])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..3])?;
 
         Ok((((self.databuf[1] as i16) << 8) | (self.databuf[2] as i16)) as f32 / self.gyro_sen)
     }
@@ -330,17 +331,36 @@ where
         Ok(res)
     }
 
+    /// set wake-on-motion detection mode
+    pub fn set_acc_wake_mode(&mut self, mode: AccWakeMode) -> Result<(), IcmError<E>> {
+        self.change_bank(2)?;
+        self.databuf[0] = RegistersBank2::AccelIntelCtrl.write();
+        self.databuf[1] = mode as u8;
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+        self.change_bank(0)?;
+        Ok(())
+    }
+
+    /// set wake-on-motion acceleration threshold
+    /// `threshold` specifies acceleration threshold in mg (1/1000 g)
+    pub fn set_acc_wake_threshold(&mut self, threshold: u16) -> Result<(), IcmError<E>> {
+        self.change_bank(2)?;
+        self.databuf[0] = RegistersBank2::AccelWomThr.write();
+        self.databuf[1] = (threshold.clamp(0, 1020) / 4).try_into().unwrap();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+        self.change_bank(0)?;
+        Ok(())
+    }
+
     /// Sets the sensitivity of the accelerometer.
     ///
     /// `acc_sen` specifies the desired sensitivity. See the data sheet for more details.
     pub fn set_acc_sen(&mut self, acc_sen: AccSensitivity) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[2] = RegistersBank2::AccelConfig.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[2..4])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[2..4])?;
 
         match acc_sen {
             AccSensitivity::Sen2g => self.databuf[1] = self.databuf[3] & 0xF9,
@@ -351,11 +371,9 @@ where
 
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         match acc_sen {
             AccSensitivity::Sen2g => self.accel_sen = ACCEL_SEN_0,
@@ -370,13 +388,11 @@ where
     ///
     /// `gyro_sen` specifies the desired sensitivity. See the data sheet for more details.
     pub fn set_gyro_sen(&mut self, gyro_sen: GyroSensitivity) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[2] = RegistersBank2::GyroConfig1.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[2..4])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[2..4])?;
 
         match gyro_sen {
             GyroSensitivity::Sen250dps => self.databuf[1] = self.databuf[3] & 0xF9,
@@ -387,11 +403,9 @@ where
 
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         match gyro_sen {
             GyroSensitivity::Sen250dps => self.gyro_sen = GYRO_SEN_0,
@@ -407,13 +421,11 @@ where
     ///
     /// `bw` is the 3DB bandwidth of the LPF. See the data sheet for more details.
     pub fn config_acc_lpf(&mut self, bw: AccLPF) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         let mask: u8 = 0x38;
 
@@ -431,11 +443,9 @@ where
 
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
         Ok(())
     }
 
@@ -443,13 +453,11 @@ where
     ///
     /// `bw` is the 3DB bandwidth of the LPF. See the data sheet for more details.
     pub fn config_gyro_lpf(&mut self, bw: GyroLPF) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(READ_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         let mask: u8 = 0x38;
 
@@ -468,52 +476,42 @@ where
 
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
         Ok(())
     }
 
     /// Disables the low pass filter for the accelerometer.
     pub fn disable_acc_lpf(&mut self) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(READ_REG);
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.databuf[0] = RegistersBank2::AccelConfig.get_addr(WRITE_REG);
         self.databuf[1] = self.databuf[1] & 0xFE;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         Ok(())
     }
 
     /// Disables the low pass filter for the gyro.
     pub fn disable_gyro_lpf(&mut self) -> Result<(), IcmError<E>> {
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(READ_REG);
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.databuf[0] = RegistersBank2::GyroConfig1.get_addr(WRITE_REG);
         self.databuf[1] = self.databuf[1] & 0xFE;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         Ok(())
     }
@@ -530,29 +528,23 @@ where
         if rate < 1_125 {
             let div = 1_125 / (rate) - 1;
 
-            self.change_bank(REG_BANK_2)?;
+            self.change_bank(2)?;
 
             self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
             self.databuf[1] = 0x01;
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[0..2])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
             self.databuf[0] = RegistersBank2::AccelSmplrtDiv1.get_addr(WRITE_REG);
             self.databuf[1] = div.to_be_bytes()[0];
             self.databuf[2] = RegistersBank2::AccelSmplrtDiv2.get_addr(WRITE_REG);
             self.databuf[3] = div.to_be_bytes()[1];
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[0..2])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[2..4])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[2..4])?;
 
-            self.change_bank(REG_BANK_0)?;
+            self.change_bank(0)?;
 
             Ok(())
         } else {
@@ -573,23 +565,19 @@ where
         if rate > 4 && rate < 1125 {
             let div: u8 = (1_125 / (rate) - 1) as u8;
 
-            self.change_bank(REG_BANK_2)?;
+            self.change_bank(2)?;
 
             self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
             self.databuf[1] = 0x01;
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[0..2])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
             self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
             self.databuf[1] = div;
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[0..2])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-            self.change_bank(REG_BANK_0)?;
+            self.change_bank(0)?;
 
             Ok(())
         } else {
@@ -606,29 +594,23 @@ where
         if div < 4096 {
             div = div - 1;
 
-            self.change_bank(REG_BANK_2)?;
+            self.change_bank(2)?;
 
             self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
             self.databuf[1] = 0x01;
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[0..2])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
             self.databuf[0] = RegistersBank2::AccelSmplrtDiv1.get_addr(WRITE_REG);
             self.databuf[1] = div.to_be_bytes()[0];
             self.databuf[2] = RegistersBank2::AccelSmplrtDiv2.get_addr(WRITE_REG);
             self.databuf[3] = div.to_be_bytes()[1];
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[0..2])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-            self.cs.set_low().ok();
-            self.bus.transfer(&mut self.databuf[2..4])?;
-            self.cs.set_high().ok();
+            self.dev.transfer_in_place(&mut self.databuf[2..4])?;
 
-            self.change_bank(REG_BANK_0)?;
+            self.change_bank(0)?;
 
             Ok(())
         } else {
@@ -644,23 +626,19 @@ where
     pub fn config_gyro_rate_div(&mut self, mut div: u8) -> Result<(), IcmError<E>> {
         div = div - 1;
 
-        self.change_bank(REG_BANK_2)?;
+        self.change_bank(2)?;
 
         self.databuf[0] = RegistersBank2::OdrAlignEn.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         self.databuf[0] = RegistersBank2::GyroSmplrtDiv.get_addr(WRITE_REG);
         self.databuf[1] = div;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
-        self.change_bank(REG_BANK_0)?;
+        self.change_bank(0)?;
 
         Ok(())
     }
@@ -677,9 +655,7 @@ where
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x80;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         // TODO: Replace with a delay
         let mut j = 0;
@@ -690,26 +666,39 @@ where
         self.databuf[0] = RegistersBank0::PwrMgmt1.get_addr(WRITE_REG);
         self.databuf[1] = 0x01;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         Ok(())
     }
 
     fn change_bank(&mut self, bank: u8) -> Result<(), IcmError<E>> {
         self.databuf[0] = RegistersBank0::RegBankSel.get_addr(WRITE_REG);
-        self.databuf[1] = bank;
+        self.databuf[1] = (bank & 0x03) << 4;
 
-        self.cs.set_low().ok();
-        self.bus.transfer(&mut self.databuf[0..2])?;
-        self.cs.set_high().ok();
+        self.dev.transfer_in_place(&mut self.databuf[0..2])?;
 
         Ok(())
     }
+
+    /// dump all registes in given bank
+    pub fn dump_bank<BANK: Bank>(&mut self) -> Result<heapless::Vec<(u8, u8), 32>, IcmError<E>> {
+        self.change_bank(BANK::id())?;
+
+        let mut result = heapless::Vec::<(u8, u8), 32>::new();
+
+        for addr in BANK::iter() {
+            self.databuf[0] = addr.read();
+            self.dev.transfer_in_place(&mut self.databuf[0..2])?;
+            result.push((addr.into(), self.databuf[1])).unwrap();
+        }
+
+        self.change_bank(0)?;
+
+        Ok(result)
+    }
 }
 
-impl<BUS, PIN> Format for IcmImu<BUS, PIN> {
+impl<DEV, DELAY> Format for IcmImu<DEV, DELAY> {
     fn format(&self, fmt: Formatter) {
         defmt::write!(fmt, "ICM-20948 IMU")
     }
